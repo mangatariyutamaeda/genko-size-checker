@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>原稿サイズチェッカー</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --border:#dfe3e8; --text:#1f2328; --muted:#6b7280;
+    --accent:#2563eb; --accent-hover:#1d4ed8; --ok:#0f9d58; --ng:#d93025; --ng-bg:#fdecea;
+  }
+  *{box-sizing:border-box;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Kaku Gothic ProN",sans-serif;
+       background:var(--bg); color:var(--text); margin:0; padding:24px; line-height:1.6;}
+  h1{font-size:20px; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:20px;}
+  .card{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:18px 20px; margin-bottom:16px;}
+  .card h2{font-size:15px; margin:0 0 12px; display:flex; align-items:center; gap:8px;}
+  .badge{font-size:11px; padding:2px 8px; border-radius:999px; background:#eef2ff; color:var(--accent); font-weight:600;}
+  label{display:block; font-size:12px; color:var(--muted); margin-bottom:4px; margin-top:10px;}
+  label:first-child{margin-top:0;}
+  input[type=text], input[type=number], textarea, select{
+    width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;
+    background:#fff; color:var(--text); font-family:inherit;
+  }
+  textarea{resize:vertical; min-height:70px;}
+  .row{display:flex; gap:12px; flex-wrap:wrap;}
+  .row > div{flex:1; min-width:140px;}
+  button{
+    background:var(--accent); color:#fff; border:none; padding:8px 16px; border-radius:6px;
+    font-size:13px; cursor:pointer; font-weight:600; margin-top:12px; margin-right:8px;
+  }
+  button:hover{background:var(--accent-hover);}
+  button.secondary{background:#fff; color:var(--accent); border:1px solid var(--accent);}
+  button.secondary:hover{background:#eef2ff;}
+  button:disabled{background:#c7cbd1; cursor:not-allowed;}
+  .status{font-size:12px; margin-top:8px; color:var(--muted);}
+  .status.ok{color:var(--ok);}
+  .status.error{color:var(--ng);}
+  table{width:100%; border-collapse:collapse; font-size:12.5px; margin-top:14px;}
+  th, td{border-bottom:1px solid var(--border); padding:6px 8px; text-align:left; white-space:nowrap;}
+  th{background:#fafbfc; position:sticky; top:0;}
+  tr.ng{background:var(--ng-bg);}
+  .pass{color:var(--ok); font-weight:700;}
+  .fail{color:var(--ng); font-weight:700;}
+  .table-wrap{max-height:480px; overflow:auto; border:1px solid var(--border); border-radius:8px; margin-top:10px;}
+  .summary{font-size:13px; margin-top:10px; font-weight:600;}
+  details.guide{margin-bottom:16px;}
+  details.guide summary{cursor:pointer; font-weight:600; font-size:13px; color:var(--accent);}
+  details.guide .content{font-size:12.5px; color:var(--text); margin-top:10px; background:#fafbfc; padding:14px 16px; border-radius:8px; border:1px solid var(--border);}
+  details.guide ol{padding-left:20px;}
+  details.guide li{margin-bottom:6px;}
+  code{background:#eef0f2; padding:1px 5px; border-radius:4px; font-size:12px;}
+  .progress-bar{height:6px; background:#e5e7eb; border-radius:4px; overflow:hidden; margin-top:10px;}
+  .progress-bar-inner{height:100%; background:var(--accent); width:0%; transition:width .2s;}
+</style>
+</head>
+<body>
+
+<h1>原稿サイズチェッカー</h1>
+<div class="sub">Google Drive上のTIFファイルの寸法(px)・DPIを、取引先ごとのマスタ設定と照合します。すべてブラウザ内で完結し、サーバーへのアップロードは行いません。</div>
+
+<details class="guide">
+  <summary>初回セットアップ手順(Google Cloud OAuthクライアントIDの取得方法)</summary>
+  <div class="content">
+    <ol>
+      <li><a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a> にアクセスし、新しいプロジェクトを作成(既存プロジェクトでも可)。</li>
+      <li>左メニュー「APIとサービス」→「ライブラリ」で <b>Google Drive API</b> と <b>Google Sheets API</b> を検索し、それぞれ「有効にする」。</li>
+      <li>「APIとサービス」→「OAuth同意画面」で、User Type を選択(社内のみなら「内部」、それ以外は「外部」)し、アプリ名・サポートメール等を入力して保存。テストユーザーを使う場合は利用する社員のメールアドレスを追加。</li>
+      <li>「APIとサービス」→「認証情報」→「認証情報を作成」→「OAuthクライアントID」を選択。アプリケーションの種類は「ウェブアプリケーション」。</li>
+      <li>「承認済みのJavaScript生成元」に、このHTMLファイルを実際に開くURL(例: <code>https://your-team.github.io</code> や社内サーバーのURL)を追加して保存。<b>ローカルで file:// のまま開くと動作しません。</b>GitHub Pages、Google Sites、社内Webサーバーなど、httpsで配信できる場所にこのファイルを置いてください。</li>
+      <li>発行された「クライアントID」をコピーし、下の「初期設定」欄に貼り付けて保存。</li>
+      <li>マスタ用のGoogleスプレッドシートを1つ用意し、1行目に <code>取引先名 / 幅px / 高さpx / DPI</code> の見出しを入れておく(なければツール側の保存操作時に自動で追加されます)。そのスプレッドシートのURLを「初期設定」欄に貼り付けて保存。</li>
+      <li>「初期設定」欄で保存したら「Googleでログイン」ボタンからアクセス許可(Drive閲覧・Sheets編集)を承認してください。</li>
+    </ol>
+  </div>
+</details>
+
+<div class="card">
+  <h2>初期設定 <span class="badge">最初の1回だけ</span></h2>
+  <label>OAuthクライアントID</label>
+  <input type="text" id="clientIdInput" placeholder="xxxxxxxxxx.apps.googleusercontent.com">
+  <label>マスタスプレッドシートのURL または ID</label>
+  <input type="text" id="masterSheetInput" placeholder="https://docs.google.com/spreadsheets/d/xxxxx/edit">
+  <button id="saveConfigBtn">設定を保存</button>
+  <button id="signInBtn" class="secondary" disabled>Googleでログイン</button>
+  <div class="status" id="configStatus"></div>
+</div>
+
+<div class="card">
+  <h2>取引先マスタ管理</h2>
+  <label>登録済み取引先</label>
+  <div class="row">
+    <div style="flex:2">
+      <select id="clientSelect"><option value="">-- 新規登録 --</option></select>
+    </div>
+    <div>
+      <button id="reloadMasterBtn" class="secondary" style="margin-top:0;">一覧を再読み込み</button>
+    </div>
+  </div>
+  <div class="row">
+    <div>
+      <label>取引先名</label>
+      <input type="text" id="clientName" placeholder="例: 〇〇出版">
+    </div>
+    <div>
+      <label>幅 (px)</label>
+      <input type="number" id="specWidth" placeholder="例: 3000">
+    </div>
+    <div>
+      <label>高さ (px)</label>
+      <input type="number" id="specHeight" placeholder="例: 4000">
+    </div>
+    <div>
+      <label>DPI</label>
+      <input type="number" id="specDpi" placeholder="例: 350">
+    </div>
+  </div>
+  <button id="saveClientBtn">この内容をマスタに保存</button>
+  <div class="status" id="masterStatus"></div>
+</div>
+
+<div class="card">
+  <h2>チェック実行</h2>
+  <label>対象フォルダ(Google DriveのフォルダURL または ID。1行に1つ、複数可)</label>
+  <textarea id="folderList" placeholder="https://drive.google.com/drive/folders/xxxxx&#10;https://drive.google.com/drive/folders/yyyyy"></textarea>
+  <label style="display:flex; align-items:center; gap:6px; margin-top:10px;">
+    <input type="checkbox" id="recursiveCheck" style="width:auto;"> サブフォルダも含めてチェックする
+  </label>
+  <button id="runCheckBtn">チェック開始</button>
+  <button id="csvBtn" class="secondary" disabled>結果をCSVでダウンロード</button>
+  <div class="progress-bar" id="progressBar" style="display:none;"><div class="progress-bar-inner" id="progressBarInner"></div></div>
+  <div class="status" id="checkStatus"></div>
+  <div class="summary" id="summary"></div>
+  <div class="table-wrap" id="tableWrap" style="display:none;">
+    <table id="resultTable">
+      <thead>
+        <tr>
+          <th>判定</th><th>ファイル名</th><th>フォルダ</th>
+          <th>幅(px)</th><th>高さ(px)</th><th>DPI</th>
+          <th>期待値(幅×高さ / DPI)</th><th>詳細</th><th>リンク</th>
+        </tr>
+      </thead>
+      <tbody id="resultBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const SCOPES = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets';
+
+let CLIENT_ID = localStorage.getItem('msc_client_id') || '';
+let MASTER_SHEET_ID = localStorage.getItem('msc_master_sheet_id') || '';
+let accessToken = null;
+let tokenClient = null;
+let masterRows = []; // {rowNumber, name, width, height, dpi}
+let checkResults = [];
+
+const $ = (id) => document.getElementById(id);
+
+// ---------- ID extraction helpers ----------
+function extractId(input, kind) {
+  if (!input) return '';
+  input = input.trim();
+  if (kind === 'folder') {
+    const m = input.match(/\/folders\/([-\w]{10,})/);
+    if (m) return m[1];
+  }
+  if (kind === 'sheet') {
+    const m = input.match(/\/spreadsheets\/d\/([-\w]{10,})/);
+    if (m) return m[1];
+  }
+  // fallback: assume it's already a bare ID (strip query strings)
+  return input.split(/[?#]/)[0].split('/').pop();
+}
+
+// ---------- Config / Auth ----------
+function refreshConfigInputs() {
+  $('clientIdInput').value = CLIENT_ID;
+  $('masterSheetInput').value = MASTER_SHEET_ID;
+  $('signInBtn').disabled = !CLIENT_ID;
+}
+refreshConfigInputs();
+
+$('saveConfigBtn').addEventListener('click', () => {
+  CLIENT_ID = $('clientIdInput').value.trim();
+  const sheetInput = $('masterSheetInput').value.trim();
+  MASTER_SHEET_ID = extractId(sheetInput, 'sheet');
+  localStorage.setItem('msc_client_id', CLIENT_ID);
+  localStorage.setItem('msc_master_sheet_id', MASTER_SHEET_ID);
+  refreshConfigInputs();
+  setStatus('configStatus', '設定を保存しました。「Googleでログイン」を押してください。', 'ok');
+  initTokenClient();
+});
+
+function initTokenClient() {
+  if (!CLIENT_ID || typeof google === 'undefined') return;
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    callback: (resp) => {
+      if (resp.error) {
+        setStatus('configStatus', 'ログインに失敗しました: ' + resp.error, 'error');
+        return;
+      }
+      accessToken = resp.access_token;
+      setStatus('configStatus', 'ログイン済みです。', 'ok');
+      if (MASTER_SHEET_ID) loadMasterList();
+    }
+  });
+}
+initTokenClient();
+
+$('signInBtn').addEventListener('click', () => {
+  if (!tokenClient) initTokenClient();
+  tokenClient.requestAccessToken({ prompt: accessToken ? '' : 'consent' });
+});
+
+function setStatus(id, msg, type) {
+  const el = $(id);
+  el.textContent = msg;
+  el.className = 'status' + (type ? ' ' + type : '');
+}
+
+function authHeaders() {
+  if (!accessToken) throw new Error('ログインしてください');
+  return { Authorization: 'Bearer ' + accessToken };
+}
+
+// ---------- Master (Google Sheets) ----------
+const MASTER_RANGE = 'A:D';
+
+async function loadMasterList() {
+  try {
+    setStatus('masterStatus', '読み込み中...', '');
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/${MASTER_RANGE}`;
+    const res = await fetch(url, { headers: authHeaders() });
+    if (!res.ok) throw new Error('マスタ読み込みに失敗しました (HTTP ' + res.status + ')');
+    const data = await res.json();
+    const values = data.values || [];
+    masterRows = [];
+    // row 1 = header (取引先名/幅px/高さpx/DPI), data starts row 2
+    for (let i = 1; i < values.length; i++) {
+      const r = values[i];
+      if (!r || !r[0]) continue;
+      masterRows.push({
+        rowNumber: i + 1,
+        name: r[0],
+        width: r[1],
+        height: r[2],
+        dpi: r[3]
+      });
+    }
+    const sel = $('clientSelect');
+    sel.innerHTML = '<option value="">-- 新規登録 --</option>';
+    masterRows.forEach((r, idx) => {
+      const opt = document.createElement('option');
+      opt.value = idx;
+      opt.textContent = r.name;
+      sel.appendChild(opt);
+    });
+    setStatus('masterStatus', `${masterRows.length}件の取引先を読み込みました。`, 'ok');
+  } catch (e) {
+    setStatus('masterStatus', 'エラー: ' + e.message, 'error');
+  }
+}
+
+$('reloadMasterBtn').addEventListener('click', loadMasterList);
+
+$('clientSelect').addEventListener('change', () => {
+  const idx = $('clientSelect').value;
+  if (idx === '') {
+    $('clientName').value = '';
+    $('specWidth').value = '';
+    $('specHeight').value = '';
+    $('specDpi').value = '';
+    return;
+  }
+  const r = masterRows[idx];
+  $('clientName').value = r.name;
+  $('specWidth').value = r.width;
+  $('specHeight').value = r.height;
+  $('specDpi').value = r.dpi;
+});
+
+async function ensureHeaderRow() {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A1:D1`;
+  const res = await fetch(url, { headers: authHeaders() });
+  const data = await res.json();
+  if (!data.values || !data.values.length) {
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A1:D1?valueInputOption=RAW`, {
+      method: 'PUT',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: [['取引先名', '幅px', '高さpx', 'DPI']] })
+    });
+  }
+}
+
+$('saveClientBtn').addEventListener('click', async () => {
+  try {
+    if (!MASTER_SHEET_ID) throw new Error('マスタスプレッドシートが設定されていません');
+    const name = $('clientName').value.trim();
+    const width = $('specWidth').value.trim();
+    const height = $('specHeight').value.trim();
+    const dpi = $('specDpi').value.trim();
+    if (!name || !width || !height || !dpi) throw new Error('取引先名・幅・高さ・DPIをすべて入力してください');
+
+    setStatus('masterStatus', '保存中...', '');
+    await ensureHeaderRow();
+
+    const selIdx = $('clientSelect').value;
+    const existing = selIdx !== '' ? masterRows[selIdx] : masterRows.find(r => r.name === name);
+
+    if (existing) {
+      // update existing row
+      const range = `A${existing.rowNumber}:D${existing.rowNumber}`;
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/${range}?valueInputOption=RAW`, {
+        method: 'PUT',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values: [[name, width, height, dpi]] })
+      });
+    } else {
+      // append new row
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A:D:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values: [[name, width, height, dpi]] })
+      });
+    }
+    setStatus('masterStatus', '保存しました。', 'ok');
+    await loadMasterList();
+  } catch (e) {
+    setStatus('masterStatus', 'エラー: ' + e.message, 'error');
+  }
+});
+
+// ---------- Drive file listing ----------
+async function listFilesInFolder(folderId, folderLabel, recursive, out) {
+  let pageToken = '';
+  do {
+    const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
+    const fields = encodeURIComponent('nextPageToken, files(id,name,mimeType,webViewLink)');
+    let url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
+    if (pageToken) url += '&pageToken=' + pageToken;
+    const res = await fetch(url, { headers: authHeaders() });
+    if (!res.ok) throw new Error(`フォルダ一覧取得に失敗しました (HTTP ${res.status}): ${folderLabel}`);
+    const data = await res.json();
+    for (const f of (data.files || [])) {
+      if (f.mimeType === 'application/vnd.google-apps.folder') {
+        if (recursive) {
+          await listFilesInFolder(f.id, folderLabel + ' / ' + f.name, true, out);
+        }
+        continue;
+      }
+      const lower = f.name.toLowerCase();
+      if (f.mimeType === 'image/tiff' || lower.endsWith('.tif') || lower.endsWith('.tiff')) {
+        out.push({ id: f.id, name: f.name, folder: folderLabel, webViewLink: f.webViewLink });
+      }
+    }
+    pageToken = data.nextPageToken || '';
+  } while (pageToken);
+}
+
+// ---------- Lazy ranged TIFF reader ----------
+class TiffReader {
+  constructor(fileId) {
+    this.fileId = fileId;
+    this.chunks = []; // {start, bytes:Uint8Array}
+  }
+  async fetchRange(start, length) {
+    const end = start + length - 1;
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${this.fileId}?alt=media`, {
+      headers: { ...authHeaders(), Range: `bytes=${start}-${end}` }
+    });
+    if (!(res.ok || res.status === 206)) throw new Error('ファイル取得に失敗 (HTTP ' + res.status + ')');
+    const buf = new Uint8Array(await res.arrayBuffer());
+    this.chunks.push({ start, bytes: buf });
+    return buf;
+  }
+  findCached(offset, length) {
+    for (const c of this.chunks) {
+      if (offset >= c.start && offset + length <= c.start + c.bytes.length) {
+        return c.bytes.subarray(offset - c.start, offset - c.start + length);
+      }
+    }
+    return null;
+  }
+  async getBytes(offset, length) {
+    const cached = this.findCached(offset, length);
+    if (cached) return cached;
+    const fetchLen = Math.max(length, 2048);
+    const buf = await this.fetchRange(offset, fetchLen);
+    const cached2 = this.findCached(offset, length);
+    if (cached2) return cached2;
+    // requested length may exceed what we fetched (very rare); fetch exact
+    return await this.fetchRange(offset, length);
+  }
+}
+
+function readUint16(bytes, offset, little) {
+  return little ? (bytes[offset] | (bytes[offset + 1] << 8))
+                : ((bytes[offset] << 8) | bytes[offset + 1]);
+}
+function readUint32(bytes, offset, little) {
+  return little
+    ? (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0
+    : ((bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3]) >>> 0;
+}
+
+const TYPE_SIZE = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8 };
+
+async function parseTiffSpec(fileId) {
+  const reader = new TiffReader(fileId);
+  const header = await reader.getBytes(0, 8);
+  let little;
+  if (header[0] === 0x49 && header[1] === 0x49) little = true;
+  else if (header[0] === 0x4D && header[1] === 0x4D) little = false;
+  else throw new Error('TIFF形式ではありません');
+  const magic = readUint16(header, 2, little);
+  if (magic !== 42) throw new Error('不正なTIFFヘッダーです');
+  const ifdOffset = readUint32(header, 4, little);
+
+  const countBytes = await reader.getBytes(ifdOffset, 2);
+  const entryCount = readUint16(countBytes, 0, little);
+  const entriesBytes = await reader.getBytes(ifdOffset + 2, entryCount * 12);
+
+  const tags = {};
+  for (let i = 0; i < entryCount; i++) {
+    const eOff = i * 12;
+    const tag = readUint16(entriesBytes, eOff, little);
+    const type = readUint16(entriesBytes, eOff + 2, little);
+    const count = readUint32(entriesBytes, eOff + 4, little);
+    const typeSize = TYPE_SIZE[type] || 1;
+    const totalSize = typeSize * count;
+
+    let valueBytes;
+    if (totalSize <= 4) {
+      valueBytes = entriesBytes.subarray(eOff + 8, eOff + 8 + totalSize);
+    } else {
+      const dataOffset = readUint32(entriesBytes, eOff + 8, little);
+      valueBytes = await reader.getBytes(dataOffset, totalSize);
+    }
+    tags[tag] = { type, count, bytes: valueBytes };
+  }
+
+  function readIntTag(tagId) {
+    const t = tags[tagId];
+    if (!t) return null;
+    if (t.type === 3) return readUint16(t.bytes, 0, little);
+    if (t.type === 4) return readUint32(t.bytes, 0, little);
+    return null;
+  }
+  function readRationalTag(tagId) {
+    const t = tags[tagId];
+    if (!t) return null;
+    const num = readUint32(t.bytes, 0, little);
+    const den = readUint32(t.bytes, 4, little);
+    if (!den) return null;
+    return num / den;
+  }
+
+  const width = readIntTag(256);
+  const height = readIntTag(257);
+  const resUnit = readIntTag(296) || 2; // default: inch
+  let xRes = readRationalTag(282);
+  let yRes = readRationalTag(283);
+
+  if (resUnit === 3) { // centimeters -> convert to per-inch
+    if (xRes != null) xRes *= 2.54;
+    if (yRes != null) yRes *= 2.54;
+  } else if (resUnit === 1) {
+    xRes = null; yRes = null; // no absolute unit
+  }
+
+  return {
+    width, height,
+    dpiX: xRes != null ? Math.round(xRes) : null,
+    dpiY: yRes != null ? Math.round(yRes) : null
+  };
+}
+
+// ---------- Concurrency-limited runner ----------
+async function runPool(items, worker, concurrency, onProgress) {
+  let i = 0, done = 0;
+  const results = new Array(items.length);
+  async function next() {
+    while (i < items.length) {
+      const idx = i++;
+      try {
+        results[idx] = await worker(items[idx]);
+      } catch (e) {
+        results[idx] = { error: e.message };
+      }
+      done++;
+      onProgress(done, items.length);
+    }
+  }
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, next);
+  await Promise.all(workers);
+  return results;
+}
+
+// ---------- Check execution ----------
+$('runCheckBtn').addEventListener('click', async () => {
+  try {
+    if (!accessToken) throw new Error('先にGoogleでログインしてください');
+    const specWidth = parseInt($('specWidth').value, 10);
+    const specHeight = parseInt($('specHeight').value, 10);
+    const specDpi = parseInt($('specDpi').value, 10);
+    if (!specWidth || !specHeight || !specDpi) throw new Error('基準となる幅・高さ・DPIを入力(または取引先マスタから選択)してください');
+
+    const folderLines = $('folderList').value.split('\n').map(s => s.trim()).filter(Boolean);
+    if (!folderLines.length) throw new Error('対象フォルダを1つ以上入力してください');
+    const recursive = $('recursiveCheck').checked;
+
+    $('runCheckBtn').disabled = true;
+    $('csvBtn').disabled = true;
+    checkResults = [];
+    $('resultBody').innerHTML = '';
+    $('tableWrap').style.display = 'none';
+    $('summary').textContent = '';
+    setStatus('checkStatus', 'フォルダを走査中...', '');
+
+    const allFiles = [];
+    for (const line of folderLines) {
+      const folderId = extractId(line, 'folder');
+      await listFilesInFolder(folderId, folderId, recursive, allFiles);
+    }
+
+    if (!allFiles.length) {
+      setStatus('checkStatus', '対象となるtif/tiffファイルが見つかりませんでした。', 'error');
+      $('runCheckBtn').disabled = false;
+      return;
+    }
+
+    $('progressBar').style.display = 'block';
+    setStatus('checkStatus', `0 / ${allFiles.length} 件処理中...`, '');
+
+    await runPool(allFiles, async (file) => {
+      let spec;
+      let reason = '';
+      let ok = false;
+      try {
+        spec = await parseTiffSpec(file.id);
+        const widthOk = spec.width === specWidth;
+        const heightOk = spec.height === specHeight;
+        const dpiOk = spec.dpiX === specDpi && spec.dpiY === specDpi;
+        ok = widthOk && heightOk && dpiOk;
+        if (!ok) {
+          const reasons = [];
+          if (!widthOk || !heightOk) reasons.push(`寸法不一致(実測 ${spec.width || '?'}×${spec.height || '?'}px)`);
+          if (!dpiOk) reasons.push(`DPI不一致(実測 X:${spec.dpiX ?? '不明'} / Y:${spec.dpiY ?? '不明'})`);
+          reason = reasons.join(' / ');
+        }
+      } catch (e) {
+        reason = 'TIFF解析エラー: ' + e.message;
+      }
+
+      const row = {
+        ok, file, spec, reason,
+        expected: `${specWidth}×${specHeight}px / ${specDpi}dpi`
+      };
+      checkResults.push(row);
+      appendResultRow(row);
+    }, 4, (done, total) => {
+      $('progressBarInner').style.width = Math.round(done / total * 100) + '%';
+      setStatus('checkStatus', `${done} / ${total} 件処理中...`, '');
+    });
+
+    const ngCount = checkResults.filter(r => !r.ok).length;
+    setStatus('checkStatus', '完了しました。', 'ok');
+    $('summary').textContent = `合計 ${checkResults.length} 件 / NG ${ngCount} 件 / OK ${checkResults.length - ngCount} 件`;
+    $('tableWrap').style.display = 'block';
+    $('csvBtn').disabled = false;
+  } catch (e) {
+    setStatus('checkStatus', 'エラー: ' + e.message, 'error');
+  } finally {
+    $('runCheckBtn').disabled = false;
+  }
+});
+
+function appendResultRow(row) {
+  const tr = document.createElement('tr');
+  if (!row.ok) tr.className = 'ng';
+  const w = row.spec ? (row.spec.width ?? '?') : '?';
+  const h = row.spec ? (row.spec.height ?? '?') : '?';
+  const dpi = row.spec ? `X:${row.spec.dpiX ?? '?'} / Y:${row.spec.dpiY ?? '?'}` : '?';
+  tr.innerHTML = `
+    <td class="${row.ok ? 'pass' : 'fail'}">${row.ok ? 'OK' : 'NG'}</td>
+    <td>${escapeHtml(row.file.name)}</td>
+    <td>${escapeHtml(row.file.folder)}</td>
+    <td>${w}</td>
+    <td>${h}</td>
+    <td>${dpi}</td>
+    <td>${escapeHtml(row.expected)}</td>
+    <td>${escapeHtml(row.reason)}</td>
+    <td>${row.file.webViewLink ? `<a href="${row.file.webViewLink}" target="_blank">開く</a>` : ''}</td>
+  `;
+  $('resultBody').appendChild(tr);
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+$('csvBtn').addEventListener('click', () => {
+  const header = ['判定', 'ファイル名', 'フォルダ', '幅(px)', '高さ(px)', 'DPI(X)', 'DPI(Y)', '期待値', '詳細'];
+  const lines = [header.join(',')];
+  for (const r of checkResults) {
+    const w = r.spec ? (r.spec.width ?? '') : '';
+    const h = r.spec ? (r.spec.height ?? '') : '';
+    const dx = r.spec ? (r.spec.dpiX ?? '') : '';
+    const dy = r.spec ? (r.spec.dpiY ?? '') : '';
+    const cells = [r.ok ? 'OK' : 'NG', r.file.name, r.file.folder, w, h, dx, dy, r.expected, r.reason]
+      .map(v => `"${String(v).replace(/"/g, '""')}"`);
+    lines.push(cells.join(','));
+  }
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `原稿サイズチェック結果_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+// auto-load master if already configured (after GIS script + user re-login each session)
+if (MASTER_SHEET_ID) {
+  setStatus('masterStatus', 'ログイン後に自動読み込みされます。', '');
+}
+</script>
+</body>
+</html>
