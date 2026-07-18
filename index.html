@@ -87,6 +87,17 @@
   <button class="tab-btn" id="tabBtnMaster" data-view="view-master">取引先マスタ管理</button>
 </div>
 
+<details class="guide">
+  <summary>初めて使う方はこちら(アクセス申請)</summary>
+  <div class="content">
+    <p style="margin:0 0 10px;">Googleログインには事前登録が必要です。下にメールアドレスを入力して送信すると、担当者に通知が届きます。追加され次第使えるようになります。</p>
+    <label>Googleアカウントのメールアドレス</label>
+    <input type="text" id="accessRequestEmail" placeholder="your.name@gmail.com">
+    <button id="accessRequestBtn">申請する</button>
+    <div class="status" id="accessRequestStatus"></div>
+  </div>
+</details>
+
 <div class="view" id="view-settings">
   <details class="guide">
     <summary>初回セットアップ手順(Google Cloud OAuthクライアントIDの取得方法)</summary>
@@ -149,6 +160,15 @@
   </div>
   <button id="saveClientBtn">この内容をマスタに保存</button>
   <div class="status" id="masterStatus"></div>
+
+  <div class="table-wrap" id="masterTableWrap" style="margin-top:16px;">
+    <table id="masterTable">
+      <thead>
+        <tr><th>取引先名</th><th>幅(px)</th><th>高さ(px)</th><th>DPI</th><th>操作</th></tr>
+      </thead>
+      <tbody id="masterTableBody"></tbody>
+    </table>
+  </div>
 </div>
 </div>
 
@@ -206,6 +226,9 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.readonly https://www.googl
 const DEFAULT_CLIENT_ID = '1008738295749-902thkt96c6dhqpmu5h3qaufej00fmbu.apps.googleusercontent.com';
 const DEFAULT_MASTER_SHEET_ID = '1QnYqQA7NpSkhuC5dUL8klBaeTQc2EjYDcACROG3OBRU';
 
+// アクセス申請の通知先(Slack Incoming Webhook)。秘密情報ではないが、悪用された場合はSlack側でURLを再発行すればよい。
+const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/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';
+
 let CLIENT_ID = localStorage.getItem('msc_client_id') || DEFAULT_CLIENT_ID;
 let MASTER_SHEET_ID = localStorage.getItem('msc_master_sheet_id') || DEFAULT_MASTER_SHEET_ID;
 let accessToken = null;
@@ -220,12 +243,12 @@ function showView(viewId) {
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === viewId));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.view === viewId));
 }
-$('tabBtnRun').addEventListener('click', () => showView('view-run'));
-$('tabBtnMaster').addEventListener('click', () => showView('view-master'));
+let lastTabView = 'view-run';
+$('tabBtnRun').addEventListener('click', () => { lastTabView = 'view-run'; showView('view-run'); });
+$('tabBtnMaster').addEventListener('click', () => { lastTabView = 'view-master'; showView('view-master'); });
 $('settingsToggleBtn').addEventListener('click', () => {
-  const el = $('view-settings');
-  el.classList.toggle('active');
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  const isSettingsOpen = $('view-settings').classList.contains('active');
+  showView(isSettingsOpen ? lastTabView : 'view-settings');
 });
 
 // ---------- ID extraction helpers ----------
@@ -297,6 +320,27 @@ function authHeaders() {
   return { Authorization: 'Bearer ' + accessToken };
 }
 
+// ---------- Access request (Slack notification) ----------
+$('accessRequestBtn').addEventListener('click', () => {
+  const email = $('accessRequestEmail').value.trim();
+  if (!email || !email.includes('@')) {
+    setStatus('accessRequestStatus', '正しいメールアドレスを入力してください。', 'error');
+    return;
+  }
+  setStatus('accessRequestStatus', '送信中...', '');
+  fetch(SLACK_WEBHOOK_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ text: `🔔 原稿サイズチェッカー アクセス申請\nメールアドレス: ${email}` })
+  }).then(() => {
+    setStatus('accessRequestStatus', '申請を送信しました。担当者が追加するまで少しお待ちください。', 'ok');
+    $('accessRequestEmail').value = '';
+  }).catch(() => {
+    setStatus('accessRequestStatus', '送信に失敗しました。時間をおいて再度お試しください。', 'error');
+  });
+});
+
 // ---------- Master (Google Sheets) ----------
 const MASTER_RANGE = 'A:D';
 
@@ -340,10 +384,84 @@ async function loadMasterList() {
     });
 
     setStatus('masterStatus', `${masterRows.length}件の取引先を読み込みました。`, 'ok');
+    renderMasterTable();
   } catch (e) {
     setStatus('masterStatus', 'エラー: ' + e.message, 'error');
   }
 }
+
+function renderMasterTable() {
+  const body = $('masterTableBody');
+  body.innerHTML = '';
+  masterRows.forEach((r, idx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escapeHtml(r.name)}</td>
+      <td>${escapeHtml(r.width)}</td>
+      <td>${escapeHtml(r.height)}</td>
+      <td>${escapeHtml(r.dpi)}</td>
+      <td>
+        <button class="secondary" style="margin:0 4px 0 0; padding:4px 10px;" data-action="edit" data-idx="${idx}">編集</button>
+        <button class="secondary" style="margin:0; padding:4px 10px; color:var(--ng); border-color:var(--ng);" data-action="delete" data-idx="${idx}">削除</button>
+      </td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
+function loadRowIntoForm(idx) {
+  const r = masterRows[idx];
+  if (!r) return;
+  $('clientSelect').value = idx;
+  $('clientName').value = r.name;
+  $('specWidth').value = r.width;
+  $('specHeight').value = r.height;
+  $('specDpi').value = r.dpi;
+}
+
+let cachedSheetId = null;
+async function getSheetId() {
+  if (cachedSheetId != null) return cachedSheetId;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}?fields=sheets.properties.sheetId`;
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) throw new Error('シート情報の取得に失敗しました (HTTP ' + res.status + ')');
+  const data = await res.json();
+  cachedSheetId = data.sheets[0].properties.sheetId;
+  return cachedSheetId;
+}
+
+async function deleteMasterRow(idx) {
+  const r = masterRows[idx];
+  if (!r) return;
+  if (!confirm(`「${r.name}」をマスタから削除します。よろしいですか？`)) return;
+  try {
+    setStatus('masterStatus', '削除中...', '');
+    const sheetId = await getSheetId();
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}:batchUpdate`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requests: [{
+          deleteDimension: {
+            range: { sheetId, dimension: 'ROWS', startIndex: r.rowNumber - 1, endIndex: r.rowNumber }
+          }
+        }]
+      })
+    });
+    setStatus('masterStatus', '削除しました。', 'ok');
+    await loadMasterList();
+  } catch (e) {
+    setStatus('masterStatus', 'エラー: ' + e.message, 'error');
+  }
+}
+
+$('masterTableBody').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const idx = btn.dataset.idx;
+  if (btn.dataset.action === 'edit') loadRowIntoForm(idx);
+  if (btn.dataset.action === 'delete') deleteMasterRow(idx);
+});
 
 $('reloadMasterBtn').addEventListener('click', loadMasterList);
 
