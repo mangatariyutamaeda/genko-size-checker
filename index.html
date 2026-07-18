@@ -78,6 +78,7 @@
   <div>
     <h1>原稿サイズチェッカー</h1>
     <div class="sub" style="margin-bottom:0;">Google Drive上のTIFファイルの寸法(px)・DPIを、取引先ごとのマスタ設定と照合します。すべてブラウザ内で完結し、サーバーへのアップロードは行いません。</div>
+    <div class="sub" style="margin-bottom:0;"><a href="https://drive.google.com/drive/folders/1sqqSQp3UWY-JS7FOWel1UgqbFy6zmq6o" target="_blank">📖 使い方マニュアル(Drive)</a></div>
   </div>
   <button class="gear-btn" id="settingsToggleBtn" title="設定">⚙</button>
 </div>
@@ -175,20 +176,21 @@
 <div class="view active" id="view-run">
 <div class="card">
   <h2>チェック実行</h2>
-  <label>基準にする取引先(マスタから選択、または手動入力)</label>
-  <select id="runClientSelect"><option value="">-- 手動入力 --</option></select>
+  <label>① 取引先を選択(下のサイズが自動で入力されます)</label>
+  <select id="runClientSelect"><option value="">-- 取引先を選択してください --</option></select>
+  <label style="margin-top:16px;">チェック対象のサイズ <span class="badge">取引先選択で自動入力</span></label>
   <div class="row">
     <div>
       <label>幅 (px)</label>
-      <input type="number" id="runSpecWidth" placeholder="例: 3000">
+      <input type="number" id="runSpecWidth" placeholder="取引先を選択すると自動入力" readonly>
     </div>
     <div>
       <label>高さ (px)</label>
-      <input type="number" id="runSpecHeight" placeholder="例: 4000">
+      <input type="number" id="runSpecHeight" placeholder="取引先を選択すると自動入力" readonly>
     </div>
     <div>
       <label>DPI</label>
-      <input type="number" id="runSpecDpi" placeholder="例: 350">
+      <input type="number" id="runSpecDpi" placeholder="取引先を選択すると自動入力" readonly>
     </div>
   </div>
   <label style="margin-top:16px;">対象フォルダ(Google DriveのフォルダURL または ID。1行に1つ、複数可)</label>
@@ -719,7 +721,7 @@ $('runCheckBtn').addEventListener('click', async () => {
     const specWidth = parseInt($('runSpecWidth').value, 10);
     const specHeight = parseInt($('runSpecHeight').value, 10);
     const specDpi = parseInt($('runSpecDpi').value, 10);
-    if (!specWidth || !specHeight || !specDpi) throw new Error('基準となる幅・高さ・DPIを入力(または上の取引先選択から選んで)ください');
+    if (!specWidth || !specHeight || !specDpi) throw new Error('上の「取引先を選択」からチェック対象の取引先を選んでください');
 
     const folderLines = $('folderList').value.split('\n').map(s => s.trim()).filter(Boolean);
     if (!folderLines.length) throw new Error('対象フォルダを1つ以上入力してください');
