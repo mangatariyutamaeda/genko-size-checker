@@ -336,7 +336,14 @@ $('accessRequestBtn').addEventListener('click', () => {
     method: 'POST',
     mode: 'no-cors',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'payload=' + encodeURIComponent(JSON.stringify({ text: `🔔 原稿サイズチェッカー アクセス申請\nメールアドレス: ${email}` }))
+    body: 'payload=' + encodeURIComponent(JSON.stringify({ text:
+      `*🔔 原稿サイズチェッカー アクセス申請*\n\n` +
+      `*メールアドレス:* ${email}\n\n` +
+      `*対応手順*\n` +
+      `1. <https://console.cloud.google.com/auth/audience?project=nomadic-bedrock-502704-e4|Google Cloud のテストユーザー設定を開く>\n` +
+      `2. 「Add users」を押して上記のメールアドレスを追加して保存\n` +
+      `3. 追加できたら本人に「使えるようになりました」と連絡`
+    }))
   }).then(() => {
     setStatus('accessRequestStatus', '申請を送信しました。担当者が追加するまで少しお待ちください。', 'ok');
     $('accessRequestEmail').value = '';
