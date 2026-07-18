@@ -54,40 +54,70 @@
   code{background:#eef0f2; padding:1px 5px; border-radius:4px; font-size:12px;}
   .progress-bar{height:6px; background:#e5e7eb; border-radius:4px; overflow:hidden; margin-top:10px;}
   .progress-bar-inner{height:100%; background:var(--accent); width:0%; transition:width .2s;}
+
+  .topbar{display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;}
+  .tabs{display:flex; gap:4px;}
+  .tab-btn{
+    background:transparent; color:var(--muted); border:none; padding:9px 16px; border-radius:8px 8px 0 0;
+    font-size:13.5px; font-weight:600; margin:0; cursor:pointer; border-bottom:2px solid transparent;
+  }
+  .tab-btn:hover{background:#eef2ff; color:var(--accent);}
+  .tab-btn.active{color:var(--accent); border-bottom:2px solid var(--accent); background:#fff;}
+  .gear-btn{
+    background:transparent; border:1px solid var(--border); color:var(--muted); width:34px; height:34px;
+    border-radius:8px; padding:0; margin:0; font-size:16px; line-height:1; display:flex; align-items:center; justify-content:center;
+  }
+  .gear-btn:hover{background:#eef2ff; color:var(--accent); border-color:var(--accent);}
+  .view{display:none;}
+  .view.active{display:block;}
 </style>
 </head>
 <body>
 
-<h1>原稿サイズチェッカー</h1>
-<div class="sub">Google Drive上のTIFファイルの寸法(px)・DPIを、取引先ごとのマスタ設定と照合します。すべてブラウザ内で完結し、サーバーへのアップロードは行いません。</div>
-
-<details class="guide">
-  <summary>初回セットアップ手順(Google Cloud OAuthクライアントIDの取得方法)</summary>
-  <div class="content">
-    <ol>
-      <li><a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a> にアクセスし、新しいプロジェクトを作成(既存プロジェクトでも可)。</li>
-      <li>左メニュー「APIとサービス」→「ライブラリ」で <b>Google Drive API</b> と <b>Google Sheets API</b> を検索し、それぞれ「有効にする」。</li>
-      <li>「APIとサービス」→「OAuth同意画面」で、User Type を選択(社内のみなら「内部」、それ以外は「外部」)し、アプリ名・サポートメール等を入力して保存。テストユーザーを使う場合は利用する社員のメールアドレスを追加。</li>
-      <li>「APIとサービス」→「認証情報」→「認証情報を作成」→「OAuthクライアントID」を選択。アプリケーションの種類は「ウェブアプリケーション」。</li>
-      <li>「承認済みのJavaScript生成元」に、このHTMLファイルを実際に開くURL(例: <code>https://your-team.github.io</code> や社内サーバーのURL)を追加して保存。<b>ローカルで file:// のまま開くと動作しません。</b>GitHub Pages、Google Sites、社内Webサーバーなど、httpsで配信できる場所にこのファイルを置いてください。</li>
-      <li>発行された「クライアントID」をコピーし、下の「初期設定」欄に貼り付けて保存。</li>
-      <li>マスタ用のGoogleスプレッドシートを1つ用意し、1行目に <code>取引先名 / 幅px / 高さpx / DPI</code> の見出しを入れておく(なければツール側の保存操作時に自動で追加されます)。そのスプレッドシートのURLを「初期設定」欄に貼り付けて保存。</li>
-      <li>「初期設定」欄で保存したら「Googleでログイン」ボタンからアクセス許可(Drive閲覧・Sheets編集)を承認してください。</li>
-    </ol>
+<div class="topbar">
+  <div>
+    <h1>原稿サイズチェッカー</h1>
+    <div class="sub" style="margin-bottom:0;">Google Drive上のTIFファイルの寸法(px)・DPIを、取引先ごとのマスタ設定と照合します。すべてブラウザ内で完結し、サーバーへのアップロードは行いません。</div>
   </div>
-</details>
-
-<div class="card">
-  <h2>初期設定 <span class="badge">最初の1回だけ</span></h2>
-  <label>OAuthクライアントID</label>
-  <input type="text" id="clientIdInput" placeholder="xxxxxxxxxx.apps.googleusercontent.com">
-  <label>マスタスプレッドシートのURL または ID</label>
-  <input type="text" id="masterSheetInput" placeholder="https://docs.google.com/spreadsheets/d/xxxxx/edit">
-  <button id="saveConfigBtn">設定を保存</button>
-  <button id="signInBtn" class="secondary" disabled>Googleでログイン</button>
-  <div class="status" id="configStatus"></div>
+  <button class="gear-btn" id="settingsToggleBtn" title="設定">⚙</button>
 </div>
 
+<div class="tabs">
+  <button class="tab-btn active" id="tabBtnRun" data-view="view-run">チェック実行</button>
+  <button class="tab-btn" id="tabBtnMaster" data-view="view-master">取引先マスタ管理</button>
+</div>
+
+<div class="view" id="view-settings">
+  <details class="guide">
+    <summary>初回セットアップ手順(Google Cloud OAuthクライアントIDの取得方法)</summary>
+    <div class="content">
+      <ol>
+        <li><a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a> にアクセスし、新しいプロジェクトを作成(既存プロジェクトでも可)。</li>
+        <li>左メニュー「APIとサービス」→「ライブラリ」で <b>Google Drive API</b> と <b>Google Sheets API</b> を検索し、それぞれ「有効にする」。</li>
+        <li>「APIとサービス」→「OAuth同意画面」で、User Type を選択(社内のみなら「内部」、それ以外は「外部」)し、アプリ名・サポートメール等を入力して保存。テストユーザーを使う場合は利用する社員のメールアドレスを追加。</li>
+        <li>「APIとサービス」→「認証情報」→「認証情報を作成」→「OAuthクライアントID」を選択。アプリケーションの種類は「ウェブアプリケーション」。</li>
+        <li>「承認済みのJavaScript生成元」に、このHTMLファイルを実際に開くURL(例: <code>https://your-team.github.io</code> や社内サーバーのURL)を追加して保存。<b>ローカルで file:// のまま開くと動作しません。</b>GitHub Pages、Google Sites、社内Webサーバーなど、httpsで配信できる場所にこのファイルを置いてください。</li>
+        <li>発行された「クライアントID」をコピーし、下の「設定」欄に貼り付けて保存。</li>
+        <li>マスタ用のGoogleスプレッドシートを1つ用意し、1行目に <code>取引先名 / 幅px / 高さpx / DPI</code> の見出しを入れておく(なければツール側の保存操作時に自動で追加されます)。そのスプレッドシートのURLを「設定」欄に貼り付けて保存。</li>
+        <li>「設定」欄で保存したら「Googleでログイン」ボタンからアクセス許可(Drive閲覧・Sheets編集)を承認してください。</li>
+      </ol>
+    </div>
+  </details>
+
+  <div class="card">
+    <h2>設定 <span class="badge">通常は変更不要</span></h2>
+    <div class="sub" style="margin-bottom:12px;">クライアントIDとマスタシートはあらかじめ設定済みです。別のプロジェクト/シートに切り替えたいときだけここを変更してください。</div>
+    <label>OAuthクライアントID</label>
+    <input type="text" id="clientIdInput" placeholder="xxxxxxxxxx.apps.googleusercontent.com">
+    <label>マスタスプレッドシートのURL または ID</label>
+    <input type="text" id="masterSheetInput" placeholder="https://docs.google.com/spreadsheets/d/xxxxx/edit">
+    <button id="saveConfigBtn">設定を保存</button>
+    <button id="signInBtn" class="secondary" disabled>Googleでログイン</button>
+    <div class="status" id="configStatus"></div>
+  </div>
+</div>
+
+<div class="view" id="view-master">
 <div class="card">
   <h2>取引先マスタ管理</h2>
   <label>登録済み取引先</label>
@@ -120,10 +150,28 @@
   <button id="saveClientBtn">この内容をマスタに保存</button>
   <div class="status" id="masterStatus"></div>
 </div>
+</div>
 
+<div class="view active" id="view-run">
 <div class="card">
   <h2>チェック実行</h2>
-  <label>対象フォルダ(Google DriveのフォルダURL または ID。1行に1つ、複数可)</label>
+  <label>基準にする取引先(マスタから選択、または手動入力)</label>
+  <select id="runClientSelect"><option value="">-- 手動入力 --</option></select>
+  <div class="row">
+    <div>
+      <label>幅 (px)</label>
+      <input type="number" id="runSpecWidth" placeholder="例: 3000">
+    </div>
+    <div>
+      <label>高さ (px)</label>
+      <input type="number" id="runSpecHeight" placeholder="例: 4000">
+    </div>
+    <div>
+      <label>DPI</label>
+      <input type="number" id="runSpecDpi" placeholder="例: 350">
+    </div>
+  </div>
+  <label style="margin-top:16px;">対象フォルダ(Google DriveのフォルダURL または ID。1行に1つ、複数可)</label>
   <textarea id="folderList" placeholder="https://drive.google.com/drive/folders/xxxxx&#10;https://drive.google.com/drive/folders/yyyyy"></textarea>
   <label style="display:flex; align-items:center; gap:6px; margin-top:10px;">
     <input type="checkbox" id="recursiveCheck" style="width:auto;"> サブフォルダも含めてチェックする
@@ -146,20 +194,39 @@
     </table>
   </div>
 </div>
+</div>
 
 <script>
 'use strict';
 
 const SCOPES = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets';
 
-let CLIENT_ID = localStorage.getItem('msc_client_id') || '';
-let MASTER_SHEET_ID = localStorage.getItem('msc_master_sheet_id') || '';
+// 社内共通のデフォルト値(秘密情報ではないため埋め込み済み)。
+// 通常の利用者は「設定」タブを開く必要はありません。
+const DEFAULT_CLIENT_ID = '1008738295749-902thkt96c6dhqpmu5h3qaufej00fmbu.apps.googleusercontent.com';
+const DEFAULT_MASTER_SHEET_ID = '1QnYqQA7NpSkhuC5dUL8klBaeTQc2EjYDcACROG3OBRU';
+
+let CLIENT_ID = localStorage.getItem('msc_client_id') || DEFAULT_CLIENT_ID;
+let MASTER_SHEET_ID = localStorage.getItem('msc_master_sheet_id') || DEFAULT_MASTER_SHEET_ID;
 let accessToken = null;
 let tokenClient = null;
 let masterRows = []; // {rowNumber, name, width, height, dpi}
 let checkResults = [];
 
 const $ = (id) => document.getElementById(id);
+
+// ---------- Tabs / settings toggle ----------
+function showView(viewId) {
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === viewId));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.view === viewId));
+}
+$('tabBtnRun').addEventListener('click', () => showView('view-run'));
+$('tabBtnMaster').addEventListener('click', () => showView('view-master'));
+$('settingsToggleBtn').addEventListener('click', () => {
+  const el = $('view-settings');
+  el.classList.toggle('active');
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+});
 
 // ---------- ID extraction helpers ----------
 function extractId(input, kind) {
@@ -262,6 +329,16 @@ async function loadMasterList() {
       opt.textContent = r.name;
       sel.appendChild(opt);
     });
+
+    const runSel = $('runClientSelect');
+    runSel.innerHTML = '<option value="">-- 手動入力 --</option>';
+    masterRows.forEach((r, idx) => {
+      const opt = document.createElement('option');
+      opt.value = idx;
+      opt.textContent = r.name;
+      runSel.appendChild(opt);
+    });
+
     setStatus('masterStatus', `${masterRows.length}件の取引先を読み込みました。`, 'ok');
   } catch (e) {
     setStatus('masterStatus', 'エラー: ' + e.message, 'error');
@@ -284,6 +361,20 @@ $('clientSelect').addEventListener('change', () => {
   $('specWidth').value = r.width;
   $('specHeight').value = r.height;
   $('specDpi').value = r.dpi;
+});
+
+$('runClientSelect').addEventListener('change', () => {
+  const idx = $('runClientSelect').value;
+  if (idx === '') {
+    $('runSpecWidth').value = '';
+    $('runSpecHeight').value = '';
+    $('runSpecDpi').value = '';
+    return;
+  }
+  const r = masterRows[idx];
+  $('runSpecWidth').value = r.width;
+  $('runSpecHeight').value = r.height;
+  $('runSpecDpi').value = r.dpi;
 });
 
 async function ensureHeaderRow() {
@@ -507,10 +598,10 @@ async function runPool(items, worker, concurrency, onProgress) {
 $('runCheckBtn').addEventListener('click', async () => {
   try {
     if (!accessToken) throw new Error('先にGoogleでログインしてください');
-    const specWidth = parseInt($('specWidth').value, 10);
-    const specHeight = parseInt($('specHeight').value, 10);
-    const specDpi = parseInt($('specDpi').value, 10);
-    if (!specWidth || !specHeight || !specDpi) throw new Error('基準となる幅・高さ・DPIを入力(または取引先マスタから選択)してください');
+    const specWidth = parseInt($('runSpecWidth').value, 10);
+    const specHeight = parseInt($('runSpecHeight').value, 10);
+    const specDpi = parseInt($('runSpecDpi').value, 10);
+    if (!specWidth || !specHeight || !specDpi) throw new Error('基準となる幅・高さ・DPIを入力(または上の取引先選択から選んで)ください');
 
     const folderLines = $('folderList').value.split('\n').map(s => s.trim()).filter(Boolean);
     if (!folderLines.length) throw new Error('対象フォルダを1つ以上入力してください');
