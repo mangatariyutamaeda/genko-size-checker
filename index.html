@@ -78,14 +78,9 @@
   <div>
     <h1>原稿サイズチェッカー</h1>
     <div class="sub" style="margin-bottom:0;">Google Drive上のTIFファイルの寸法(px)・DPIを、取引先ごとのマスタ設定と照合します。すべてブラウザ内で完結し、サーバーへのアップロードは行いません。</div>
-    <div class="sub" style="margin-bottom:0;"><a href="https://drive.google.com/drive/folders/1sqqSQp3UWY-JS7FOWel1UgqbFy6zmq6o" target="_blank">📖 使い方マニュアル(Drive)</a></div>
+    <div class="sub" style="margin-bottom:0;"><a href="https://drive.google.com/drive/folders/1sqqSQp3UWY-JS7FOWel1UgqbFy6zmq6o" target="_blank">📖 コミックシーモアの原稿仕様資料はこちら</a></div>
   </div>
   <button class="gear-btn" id="settingsToggleBtn" title="設定">⚙</button>
-</div>
-
-<div class="tabs">
-  <button class="tab-btn active" id="tabBtnRun" data-view="view-run">チェック実行</button>
-  <button class="tab-btn" id="tabBtnMaster" data-view="view-master">取引先マスタ管理</button>
 </div>
 
 <details class="guide">
@@ -98,6 +93,11 @@
     <div class="status" id="accessRequestStatus"></div>
   </div>
 </details>
+
+<div class="tabs">
+  <button class="tab-btn active" id="tabBtnRun" data-view="view-run">チェック実行</button>
+  <button class="tab-btn" id="tabBtnMaster" data-view="view-master">取引先マスタ管理</button>
+</div>
 
 <div class="view" id="view-settings">
   <details class="guide">
@@ -335,8 +335,8 @@ $('accessRequestBtn').addEventListener('click', () => {
   fetch(SLACK_WEBHOOK_URL, {
     method: 'POST',
     mode: 'no-cors',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify({ text: `🔔 原稿サイズチェッカー アクセス申請\nメールアドレス: ${email}` })
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'payload=' + encodeURIComponent(JSON.stringify({ text: `🔔 原稿サイズチェッカー アクセス申請\nメールアドレス: ${email}` }))
   }).then(() => {
     setStatus('accessRequestStatus', '申請を送信しました。担当者が追加するまで少しお待ちください。', 'ok');
     $('accessRequestEmail').value = '';
