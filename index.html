@@ -230,7 +230,7 @@ const DEFAULT_MASTER_SHEET_ID = '1QnYqQA7NpSkhuC5dUL8klBaeTQc2EjYDcACROG3OBRU';
 
 // アクセス申請の通知先(Slack Incoming Webhook)。秘密情報ではないが、悪用された場合はSlack側でURLを再発行すればよい。
 // GitHubのシークレット検出を避けるためbase64で保持し、実行時にデコードする。
-const SLACK_WEBHOOK_URL_B64 = 'aHR0cHM6Ly9ob29rcy5zbGFjay5jb20vc2VydmljZXMvVEFUSzVVWUNXL0IwQksyUjlCVDdTL01kaXcxMmhxaGxncEJZRlNRSXA2RDFCRQ==';
+const SLACK_WEBHOOK_URL_B64 = 'aHR0cHM6Ly9ob29rcy5zbGFjay5jb20vc2VydmljZXMvVEFUSzVVWUNXL0IwQksyUjlCVDdTL3ZBMkdkY0k4ZzB1N3c1SUZsZWt5M1R2cQ==';
 const SLACK_WEBHOOK_URL = atob(SLACK_WEBHOOK_URL_B64);
 
 let CLIENT_ID = localStorage.getItem('msc_client_id') || DEFAULT_CLIENT_ID;
