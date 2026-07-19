@@ -221,7 +221,8 @@
 <script>
 'use strict';
 
-const SCOPES = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets';
+const SCOPES = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email';
+const LOG_SHEET_NAME = 'ログイン履歴';
 
 // 社内共通のデフォルト値(秘密情報ではないため埋め込み済み)。
 // 通常の利用者は「設定」タブを開く必要はありません。
@@ -303,8 +304,50 @@ function initTokenClient() {
       accessToken = resp.access_token;
       setStatus('configStatus', 'ログイン済みです。', 'ok');
       if (MASTER_SHEET_ID) loadMasterList();
+      logLoginEvent();
     }
   });
+}
+
+// ---------- Login log (Google Sheets) ----------
+let logSheetChecked = false;
+async function ensureLogSheetExists() {
+  if (logSheetChecked) return;
+  const metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}?fields=sheets.properties.title`, { headers: authHeaders() });
+  if (!metaRes.ok) return;
+  const meta = await metaRes.json();
+  const exists = (meta.sheets || []).some(s => s.properties.title === LOG_SHEET_NAME);
+  if (!exists) {
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}:batchUpdate`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requests: [{ addSheet: { properties: { title: LOG_SHEET_NAME } } }] })
+    });
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/${encodeURIComponent(LOG_SHEET_NAME)}!A1:B1?valueInputOption=RAW`, {
+      method: 'PUT',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: [['日時', 'メールアドレス']] })
+    });
+  }
+  logSheetChecked = true;
+}
+
+async function logLoginEvent() {
+  try {
+    const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: authHeaders() });
+    if (!res.ok) return;
+    const info = await res.json();
+    const email = info.email || '(取得できませんでした)';
+    await ensureLogSheetExists();
+    const now = new Date().toLocaleString('ja-JP');
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/${encodeURIComponent(LOG_SHEET_NAME)}!A:B:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: [[now, email]] })
+    });
+  } catch (e) {
+    // ログイン記録の失敗は通常利用をブロックしない
+  }
 }
 initTokenClient();
 
