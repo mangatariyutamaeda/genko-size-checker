@@ -77,7 +77,7 @@
 <div class="topbar">
   <div>
     <h1>原稿サイズチェッカー</h1>
-    <div class="sub" style="margin-bottom:0;">Google Drive上のTIFファイルの寸法(px)・DPIを、取引先ごとのマスタ設定と照合します。すべてブラウザ内で完結し、サーバーへのアップロードは行いません。</div>
+    <div class="sub" style="margin-bottom:0;">Google Drive上のTIFファイルの寸法(px)・DPI・カラーモード(グレースケール/カラー)を、取引先ごとのマスタ設定と照合します。すべてブラウザ内で完結し、サーバーへのアップロードは行いません。</div>
     <div class="sub" style="margin-bottom:0;"><a href="https://drive.google.com/drive/folders/1sqqSQp3UWY-JS7FOWel1UgqbFy6zmq6o" target="_blank">📖 コミックシーモアの原稿仕様資料はこちら</a></div>
   </div>
   <button class="gear-btn" id="settingsToggleBtn" title="設定">⚙</button>
@@ -110,7 +110,7 @@
         <li>「APIとサービス」→「認証情報」→「認証情報を作成」→「OAuthクライアントID」を選択。アプリケーションの種類は「ウェブアプリケーション」。</li>
         <li>「承認済みのJavaScript生成元」に、このHTMLファイルを実際に開くURL(例: <code>https://your-team.github.io</code> や社内サーバーのURL)を追加して保存。<b>ローカルで file:// のまま開くと動作しません。</b>GitHub Pages、Google Sites、社内Webサーバーなど、httpsで配信できる場所にこのファイルを置いてください。</li>
         <li>発行された「クライアントID」をコピーし、下の「設定」欄に貼り付けて保存。</li>
-        <li>マスタ用のGoogleスプレッドシートを1つ用意し、1行目に <code>取引先名 / 幅px / 高さpx / DPI</code> の見出しを入れておく(なければツール側の保存操作時に自動で追加されます)。そのスプレッドシートのURLを「設定」欄に貼り付けて保存。</li>
+        <li>マスタ用のGoogleスプレッドシートを1つ用意し、1行目に <code>取引先名 / 幅px / 高さpx / DPI / カラーモード</code> の見出しを入れておく(なければツール側の保存操作時に自動で追加されます)。そのスプレッドシートのURLを「設定」欄に貼り付けて保存。</li>
         <li>「設定」欄で保存したら「Googleでログイン」ボタンからアクセス許可(Drive閲覧・Sheets編集)を承認してください。</li>
       </ol>
     </div>
@@ -158,6 +158,14 @@
       <label>DPI</label>
       <input type="number" id="specDpi" placeholder="例: 350">
     </div>
+    <div>
+      <label>カラーモード</label>
+      <select id="specColor">
+        <option value="">指定なし(チェックしない)</option>
+        <option value="グレースケール">グレースケール</option>
+        <option value="カラー">カラー</option>
+      </select>
+    </div>
   </div>
   <button id="saveClientBtn">この内容をマスタに保存</button>
   <div class="status" id="masterStatus"></div>
@@ -165,7 +173,7 @@
   <div class="table-wrap" id="masterTableWrap" style="margin-top:16px;">
     <table id="masterTable">
       <thead>
-        <tr><th>取引先名</th><th>幅(px)</th><th>高さ(px)</th><th>DPI</th><th>操作</th></tr>
+        <tr><th>取引先名</th><th>幅(px)</th><th>高さ(px)</th><th>DPI</th><th>カラーモード</th><th>操作</th></tr>
       </thead>
       <tbody id="masterTableBody"></tbody>
     </table>
@@ -192,6 +200,10 @@
       <label>DPI</label>
       <input type="number" id="runSpecDpi" placeholder="取引先を選択すると自動入力" readonly>
     </div>
+    <div>
+      <label>カラーモード</label>
+      <input type="text" id="runSpecColor" placeholder="取引先を選択すると自動入力" readonly>
+    </div>
   </div>
   <label style="margin-top:16px;">対象フォルダ(Google DriveのフォルダURL または ID。1行に1つ、複数可)</label>
   <textarea id="folderList" placeholder="https://drive.google.com/drive/folders/xxxxx&#10;https://drive.google.com/drive/folders/yyyyy"></textarea>
@@ -208,8 +220,8 @@
       <thead>
         <tr>
           <th>判定</th><th>ファイル名</th><th>フォルダ</th>
-          <th>幅(px)</th><th>高さ(px)</th><th>DPI</th>
-          <th>期待値(幅×高さ / DPI)</th><th>詳細</th><th>リンク</th>
+          <th>幅(px)</th><th>高さ(px)</th><th>DPI</th><th>カラーモード</th>
+          <th>期待値</th><th>詳細</th><th>リンク</th>
         </tr>
       </thead>
       <tbody id="resultBody"></tbody>
@@ -396,7 +408,7 @@ $('accessRequestBtn').addEventListener('click', () => {
 });
 
 // ---------- Master (Google Sheets) ----------
-const MASTER_RANGE = 'A:D';
+const MASTER_RANGE = 'A:E';
 
 async function loadMasterList() {
   try {
@@ -416,7 +428,8 @@ async function loadMasterList() {
         name: r[0],
         width: r[1],
         height: r[2],
-        dpi: r[3]
+        dpi: r[3],
+        color: r[4] || ''
       });
     }
     const sel = $('clientSelect');
@@ -454,6 +467,7 @@ function renderMasterTable() {
       <td>${escapeHtml(r.width)}</td>
       <td>${escapeHtml(r.height)}</td>
       <td>${escapeHtml(r.dpi)}</td>
+      <td>${escapeHtml(r.color || '指定なし')}</td>
       <td>
         <button class="secondary" style="margin:0 4px 0 0; padding:4px 10px;" data-action="edit" data-idx="${idx}">編集</button>
         <button class="secondary" style="margin:0; padding:4px 10px; color:var(--ng); border-color:var(--ng);" data-action="delete" data-idx="${idx}">削除</button>
@@ -471,6 +485,7 @@ function loadRowIntoForm(idx) {
   $('specWidth').value = r.width;
   $('specHeight').value = r.height;
   $('specDpi').value = r.dpi;
+  $('specColor').value = r.color || '';
 }
 
 let cachedSheetId = null;
@@ -526,6 +541,7 @@ $('clientSelect').addEventListener('change', () => {
     $('specWidth').value = '';
     $('specHeight').value = '';
     $('specDpi').value = '';
+    $('specColor').value = '';
     return;
   }
   const r = masterRows[idx];
@@ -533,6 +549,7 @@ $('clientSelect').addEventListener('change', () => {
   $('specWidth').value = r.width;
   $('specHeight').value = r.height;
   $('specDpi').value = r.dpi;
+  $('specColor').value = r.color || '';
 });
 
 $('runClientSelect').addEventListener('change', () => {
@@ -541,23 +558,35 @@ $('runClientSelect').addEventListener('change', () => {
     $('runSpecWidth').value = '';
     $('runSpecHeight').value = '';
     $('runSpecDpi').value = '';
+    $('runSpecColor').value = '';
+    $('runSpecColor').dataset.expected = '';
     return;
   }
   const r = masterRows[idx];
   $('runSpecWidth').value = r.width;
   $('runSpecHeight').value = r.height;
   $('runSpecDpi').value = r.dpi;
+  $('runSpecColor').value = r.color || '指定なし';
+  $('runSpecColor').dataset.expected = r.color || '';
 });
 
 async function ensureHeaderRow() {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A1:D1`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A1:E1`;
   const res = await fetch(url, { headers: authHeaders() });
   const data = await res.json();
-  if (!data.values || !data.values.length) {
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A1:D1?valueInputOption=RAW`, {
+  const row = (data.values && data.values[0]) || [];
+  if (!row.length) {
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A1:E1?valueInputOption=RAW`, {
       method: 'PUT',
       headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ values: [['取引先名', '幅px', '高さpx', 'DPI']] })
+      body: JSON.stringify({ values: [['取引先名', '幅px', '高さpx', 'DPI', 'カラーモード']] })
+    });
+  } else if (!row[4]) {
+    // 既存のA:Dマスタにカラーモード見出しだけ追加
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/E1?valueInputOption=RAW`, {
+      method: 'PUT',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: [['カラーモード']] })
     });
   }
 }
@@ -569,6 +598,7 @@ $('saveClientBtn').addEventListener('click', async () => {
     const width = $('specWidth').value.trim();
     const height = $('specHeight').value.trim();
     const dpi = $('specDpi').value.trim();
+    const color = $('specColor').value;
     if (!name || !width || !height || !dpi) throw new Error('取引先名・幅・高さ・DPIをすべて入力してください');
 
     setStatus('masterStatus', '保存中...', '');
@@ -579,18 +609,18 @@ $('saveClientBtn').addEventListener('click', async () => {
 
     if (existing) {
       // update existing row
-      const range = `A${existing.rowNumber}:D${existing.rowNumber}`;
+      const range = `A${existing.rowNumber}:E${existing.rowNumber}`;
       await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/${range}?valueInputOption=RAW`, {
         method: 'PUT',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values: [[name, width, height, dpi]] })
+        body: JSON.stringify({ values: [[name, width, height, dpi, color]] })
       });
     } else {
       // append new row
-      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A:D:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A:E:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values: [[name, width, height, dpi]] })
+        body: JSON.stringify({ values: [[name, width, height, dpi, color]] })
       });
     }
     setStatus('masterStatus', '保存しました。', 'ok');
@@ -738,11 +768,46 @@ async function parseTiffSpec(fileId) {
     xRes = null; yRes = null; // no absolute unit
   }
 
+  const photometric = readIntTag(262); // PhotometricInterpretation
+  const samples = readIntTag(277) || 1; // SamplesPerPixel
+
   return {
     width, height,
     dpiX: xRes != null ? Math.round(xRes) : null,
-    dpiY: yRes != null ? Math.round(yRes) : null
+    dpiY: yRes != null ? Math.round(yRes) : null,
+    colorMode: classifyColorMode(photometric, samples)
   };
+}
+
+// PhotometricInterpretation(262) と SamplesPerPixel(277) からカラーモードを判定
+function classifyColorMode(photometric, samples) {
+  switch (photometric) {
+    case 0:
+    case 1: return 'グレースケール'; // WhiteIsZero / BlackIsZero
+    case 2: return 'RGB';
+    case 3: return 'パレットカラー';
+    case 5: return 'CMYK';
+    case 6: return 'YCbCr';
+    case 8:
+    case 9: return 'Lab';
+    default:
+      if (photometric == null) return samples >= 3 ? 'カラー' : '不明';
+      return `その他(${photometric})`;
+  }
+}
+
+function isGrayscaleMode(mode) {
+  return mode === 'グレースケール';
+}
+
+// 期待カラーモード(expected: '' / 'グレースケール' / 'カラー')と実測(mode)を照合
+// 戻り値: true=OK, false=NG, null=チェック対象外
+function checkColorMode(expected, mode) {
+  if (!expected) return null; // 指定なし
+  if (!mode || mode === '不明') return false; // 判定できない
+  if (expected === 'グレースケール') return isGrayscaleMode(mode);
+  if (expected === 'カラー') return !isGrayscaleMode(mode);
+  return null;
 }
 
 // ---------- Concurrency-limited runner ----------
@@ -773,6 +838,7 @@ $('runCheckBtn').addEventListener('click', async () => {
     const specWidth = parseInt($('runSpecWidth').value, 10);
     const specHeight = parseInt($('runSpecHeight').value, 10);
     const specDpi = parseInt($('runSpecDpi').value, 10);
+    const specColor = $('runSpecColor').dataset.expected || '';
     if (!specWidth || !specHeight || !specDpi) throw new Error('上の「取引先を選択」からチェック対象の取引先を選んでください');
 
     const folderLines = $('folderList').value.split('\n').map(s => s.trim()).filter(Boolean);
@@ -811,11 +877,13 @@ $('runCheckBtn').addEventListener('click', async () => {
         const widthOk = spec.width === specWidth;
         const heightOk = spec.height === specHeight;
         const dpiOk = spec.dpiX === specDpi && spec.dpiY === specDpi;
-        ok = widthOk && heightOk && dpiOk;
+        const colorResult = checkColorMode(specColor, spec.colorMode); // true/false/null
+        ok = widthOk && heightOk && dpiOk && colorResult !== false;
         if (!ok) {
           const reasons = [];
           if (!widthOk || !heightOk) reasons.push(`寸法不一致(実測 ${spec.width || '?'}×${spec.height || '?'}px)`);
           if (!dpiOk) reasons.push(`DPI不一致(実測 X:${spec.dpiX ?? '不明'} / Y:${spec.dpiY ?? '不明'})`);
+          if (colorResult === false) reasons.push(`カラーモード不一致(期待 ${specColor} / 実測 ${spec.colorMode || '不明'})`);
           reason = reasons.join(' / ');
         }
       } catch (e) {
@@ -824,7 +892,7 @@ $('runCheckBtn').addEventListener('click', async () => {
 
       const row = {
         ok, file, spec, reason,
-        expected: `${specWidth}×${specHeight}px / ${specDpi}dpi`
+        expected: `${specWidth}×${specHeight}px / ${specDpi}dpi` + (specColor ? ` / ${specColor}` : '')
       };
       checkResults.push(row);
       appendResultRow(row);
@@ -851,6 +919,7 @@ function appendResultRow(row) {
   const w = row.spec ? (row.spec.width ?? '?') : '?';
   const h = row.spec ? (row.spec.height ?? '?') : '?';
   const dpi = row.spec ? `X:${row.spec.dpiX ?? '?'} / Y:${row.spec.dpiY ?? '?'}` : '?';
+  const color = row.spec ? (row.spec.colorMode ?? '?') : '?';
   tr.innerHTML = `
     <td class="${row.ok ? 'pass' : 'fail'}">${row.ok ? 'OK' : 'NG'}</td>
     <td>${escapeHtml(row.file.name)}</td>
@@ -858,6 +927,7 @@ function appendResultRow(row) {
     <td>${w}</td>
     <td>${h}</td>
     <td>${dpi}</td>
+    <td>${escapeHtml(color)}</td>
     <td>${escapeHtml(row.expected)}</td>
     <td>${escapeHtml(row.reason)}</td>
     <td>${row.file.webViewLink ? `<a href="${row.file.webViewLink}" target="_blank">開く</a>` : ''}</td>
@@ -871,14 +941,15 @@ function escapeHtml(s) {
 }
 
 $('csvBtn').addEventListener('click', () => {
-  const header = ['判定', 'ファイル名', 'フォルダ', '幅(px)', '高さ(px)', 'DPI(X)', 'DPI(Y)', '期待値', '詳細'];
+  const header = ['判定', 'ファイル名', 'フォルダ', '幅(px)', '高さ(px)', 'DPI(X)', 'DPI(Y)', 'カラーモード', '期待値', '詳細'];
   const lines = [header.join(',')];
   for (const r of checkResults) {
     const w = r.spec ? (r.spec.width ?? '') : '';
     const h = r.spec ? (r.spec.height ?? '') : '';
     const dx = r.spec ? (r.spec.dpiX ?? '') : '';
     const dy = r.spec ? (r.spec.dpiY ?? '') : '';
-    const cells = [r.ok ? 'OK' : 'NG', r.file.name, r.file.folder, w, h, dx, dy, r.expected, r.reason]
+    const cm = r.spec ? (r.spec.colorMode ?? '') : '';
+    const cells = [r.ok ? 'OK' : 'NG', r.file.name, r.file.folder, w, h, dx, dy, cm, r.expected, r.reason]
       .map(v => `"${String(v).replace(/"/g, '""')}"`);
     lines.push(cells.join(','));
   }
