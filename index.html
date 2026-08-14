@@ -83,17 +83,27 @@
   <button class="gear-btn" id="settingsToggleBtn" title="設定">⚙</button>
 </div>
 
-<details class="guide">
-  <summary>初めて使う方はこちら(アクセス申請)</summary>
-  <div class="content">
-    <p style="margin:0 0 10px;">Googleログインには事前登録が必要です。ご自身のGmailアドレスを入力して送信すると、担当者に通知が届きます。追加され次第使えるようになります。</p>
-    <label>Gmailアドレス</label>
-    <input type="text" id="accessRequestEmail" placeholder="your.name@gmail.com">
-    <button id="accessRequestBtn">申請する</button>
-    <div class="status" id="accessRequestStatus"></div>
-  </div>
-</details>
+<div id="loginScreen" class="card" style="display:none;">
+  <h2>ログイン</h2>
+  <div class="sub" style="margin-bottom:14px;">このツールの利用にはGoogleアカウントでのログインが必要です。事前に登録されたアカウントのみ利用できます。</div>
+  <button id="signInBtnLogin">Googleでログイン</button>
+  <div class="status" id="loginStatus"></div>
 
+  <details class="guide" id="accessGuide" style="margin-top:18px;">
+    <summary>初めて使う方はこちら(アクセス申請)</summary>
+    <div class="content">
+      <p style="margin:0 0 10px;">Googleログインには事前登録が必要です。お名前とご自身のGmailアドレスを入力して送信すると、担当者に通知が届きます。追加され次第使えるようになります。</p>
+      <label>お名前</label>
+      <input type="text" id="accessRequestName" placeholder="山田 太郎">
+      <label>Gmailアドレス</label>
+      <input type="text" id="accessRequestEmail" placeholder="your.name@gmail.com">
+      <button id="accessRequestBtn">申請する</button>
+      <div class="status" id="accessRequestStatus"></div>
+    </div>
+  </details>
+</div>
+
+<div id="appMain" style="display:none;">
 <div class="tabs">
   <button class="tab-btn active" id="tabBtnRun" data-view="view-run">チェック実行</button>
   <button class="tab-btn" id="tabBtnMaster" data-view="view-master">取引先マスタ管理</button>
@@ -237,6 +247,7 @@
   </div>
 </div>
 </div>
+</div><!-- /appMain -->
 
 <script>
 'use strict';
@@ -298,6 +309,7 @@ function refreshConfigInputs() {
   $('clientIdInput').value = CLIENT_ID;
   $('masterSheetInput').value = MASTER_SHEET_ID;
   $('signInBtn').disabled = !CLIENT_ID;
+  $('signInBtnLogin').disabled = !CLIENT_ID;
 }
 refreshConfigInputs();
 
@@ -326,6 +338,15 @@ function whenGisReady(cb, tries) {
   setTimeout(() => whenGisReady(cb, tries + 1), 100);
 }
 
+// ログイン状態に応じて画面を切り替える。
+// 未ログイン時はログイン画面のみ、ログイン済みは通常のアプリ画面を表示する。
+function updateAuthVisibility() {
+  const authed = !!accessToken;
+  $('loginScreen').style.display = authed ? 'none' : '';
+  $('appMain').style.display = authed ? '' : 'none';
+  $('settingsToggleBtn').style.display = authed ? '' : 'none';
+}
+
 function onToken(token, expiresInSec) {
   accessToken = token;
   const expAt = Date.now() + (expiresInSec * 1000) - 60000; // 60秒のバッファ
@@ -335,6 +356,7 @@ function onToken(token, expiresInSec) {
     localStorage.setItem('msc_granted_once', '1'); // 一度同意すれば以降は同意画面を省略
   } catch (e) {}
   scheduleRefresh();
+  updateAuthVisibility();
 }
 function cachedToken() {
   try {
@@ -380,6 +402,7 @@ function restoreSessionOnLoad() {
     scheduleRefresh();
     if (MASTER_SHEET_ID) loadMasterList();
   }
+  updateAuthVisibility();
 }
 
 function initTokenClient() {
@@ -391,6 +414,7 @@ function initTokenClient() {
       if (resp.error) {
         if (silentInProgress) { silentInProgress = false; return; } // 無音更新の失敗は静かに無視(ボタンでの手動ログインに委ねる)
         setStatus('configStatus', 'ログインに失敗しました: ' + resp.error, 'error');
+        setStatus('loginStatus', 'ログインに失敗しました: ' + resp.error, 'error');
         return;
       }
       silentInProgress = false;
@@ -445,17 +469,20 @@ async function logLoginEvent() {
 whenGisReady(initTokenClient);
 // restoreSessionOnLoad() はスクリプト末尾で呼ぶ(後方で定義される const 群の初期化後)
 
-$('signInBtn').addEventListener('click', () => {
+// statusId: 押されたボタンに応じて状況表示先を切り替える(ログイン画面 / 設定画面)。
+function startSignIn(statusId) {
   silentInProgress = false;
   whenGisReady(() => {
     if (!tokenClient) initTokenClient();
-    if (!tokenClient) { setStatus('configStatus', 'Googleの読み込み中です。数秒後に再度お試しください。', 'error'); return; }
+    if (!tokenClient) { setStatus(statusId, 'Googleの読み込み中です。数秒後に再度お試しください。', 'error'); return; }
     let grantedOnce = false;
     try { grantedOnce = !!localStorage.getItem('msc_granted_once'); } catch (e) {}
     // 一度同意済みなら同意画面(および未確認アプリ警告)を省略。初回のみ consent。
     tokenClient.requestAccessToken({ prompt: (accessToken || grantedOnce) ? '' : 'consent' });
   });
-});
+}
+$('signInBtn').addEventListener('click', () => startSignIn('configStatus'));
+$('signInBtnLogin').addEventListener('click', () => startSignIn('loginStatus'));
 
 function setStatus(id, msg, type) {
   const el = $(id);
@@ -470,7 +497,12 @@ function authHeaders() {
 
 // ---------- Access request (Slack notification) ----------
 $('accessRequestBtn').addEventListener('click', () => {
+  const name = $('accessRequestName').value.trim();
   const email = $('accessRequestEmail').value.trim();
+  if (!name) {
+    setStatus('accessRequestStatus', 'お名前を入力してください。', 'error');
+    return;
+  }
   if (!email || !email.includes('@')) {
     setStatus('accessRequestStatus', '正しいメールアドレスを入力してください。', 'error');
     return;
@@ -482,6 +514,7 @@ $('accessRequestBtn').addEventListener('click', () => {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: 'payload=' + encodeURIComponent(JSON.stringify({ text:
       `*🔔 原稿サイズチェッカー アクセス申請*\n\n` +
+      `*お名前:* ${name}\n` +
       `*メールアドレス:* ${email}\n\n` +
       `*対応手順*\n` +
       `1. <https://console.cloud.google.com/auth/audience?project=nomadic-bedrock-502704-e4|Google Cloud のテストユーザー設定を開く>\n` +
@@ -490,6 +523,7 @@ $('accessRequestBtn').addEventListener('click', () => {
     }))
   }).then(() => {
     setStatus('accessRequestStatus', '申請を送信しました。担当者が追加するまで少しお待ちください。', 'ok');
+    $('accessRequestName').value = '';
     $('accessRequestEmail').value = '';
   }).catch(() => {
     setStatus('accessRequestStatus', '送信に失敗しました。時間をおいて再度お試しください。', 'error');
