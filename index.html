@@ -80,10 +80,10 @@
     <div class="sub" style="margin-bottom:0;">Google Drive上の画像(TIFF/JPEG)の寸法(px)・DPI・カラーモード・拡張子を、取引先ごとのマスタ設定と照合します(幅・高さは以上/ちょうど/以下で判定可)。すべてブラウザ内で完結し、サーバーへのアップロードは行いません。</div>
     <div class="sub" style="margin-bottom:0;"><a href="https://drive.google.com/drive/folders/1sqqSQp3UWY-JS7FOWel1UgqbFy6zmq6o" target="_blank">📖 コミックシーモアの原稿仕様資料はこちら</a></div>
   </div>
-  <button class="gear-btn" id="settingsToggleBtn" title="設定">⚙</button>
+  <button class="gear-btn" id="settingsToggleBtn" title="設定" style="display:none;">⚙</button>
 </div>
 
-<div id="loginScreen" class="card" style="display:none;">
+<div id="loginScreen" class="card">
   <h2>ログイン</h2>
   <div class="sub" style="margin-bottom:14px;">このツールの利用にはGoogleアカウントでのログインが必要です。事前に登録されたアカウントのみ利用できます。</div>
   <button id="signInBtnLogin">Googleでログイン</button>
@@ -135,6 +135,7 @@
     <input type="text" id="masterSheetInput" placeholder="https://docs.google.com/spreadsheets/d/xxxxx/edit">
     <button id="saveConfigBtn">設定を保存</button>
     <button id="signInBtn" class="secondary" disabled>Googleでログイン</button>
+    <button id="signOutBtn" class="secondary">ログアウト</button>
     <div class="status" id="configStatus"></div>
   </div>
 </div>
@@ -347,6 +348,22 @@ function updateAuthVisibility() {
   $('settingsToggleBtn').style.display = authed ? '' : 'none';
 }
 
+// ログアウト。トークンとキャッシュを破棄し、ログイン画面へ戻す。
+// message を渡すと(セッション失効時など)ログイン画面にその旨を表示する。
+function signOut(message) {
+  accessToken = null;
+  clearTimeout(refreshTimer);
+  try {
+    localStorage.removeItem('msc_token');
+    localStorage.removeItem('msc_token_exp');
+  } catch (e) {}
+  masterRows = [];
+  lastTabView = 'view-run';
+  showView('view-run');
+  updateAuthVisibility();
+  setStatus('loginStatus', message || 'ログアウトしました。', message ? 'error' : 'ok');
+}
+
 function onToken(token, expiresInSec) {
   accessToken = token;
   const expAt = Date.now() + (expiresInSec * 1000) - 60000; // 60秒のバッファ
@@ -430,17 +447,17 @@ function initTokenClient() {
 let logSheetChecked = false;
 async function ensureLogSheetExists() {
   if (logSheetChecked) return;
-  const metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}?fields=sheets.properties.title`, { headers: authHeaders() });
+  const metaRes = await authFetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}?fields=sheets.properties.title`, { headers: authHeaders() });
   if (!metaRes.ok) return;
   const meta = await metaRes.json();
   const exists = (meta.sheets || []).some(s => s.properties.title === LOG_SHEET_NAME);
   if (!exists) {
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}:batchUpdate`, {
+    await authFetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}:batchUpdate`, {
       method: 'POST',
       headers: { ...authHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ requests: [{ addSheet: { properties: { title: LOG_SHEET_NAME } } }] })
     });
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/${encodeURIComponent(LOG_SHEET_NAME)}!A1:B1?valueInputOption=RAW`, {
+    await authFetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/${encodeURIComponent(LOG_SHEET_NAME)}!A1:B1?valueInputOption=RAW`, {
       method: 'PUT',
       headers: { ...authHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ values: [['日時', 'メールアドレス']] })
@@ -451,13 +468,13 @@ async function ensureLogSheetExists() {
 
 async function logLoginEvent() {
   try {
-    const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: authHeaders() });
+    const res = await authFetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: authHeaders() });
     if (!res.ok) return;
     const info = await res.json();
     const email = info.email || '(取得できませんでした)';
     await ensureLogSheetExists();
     const now = new Date().toLocaleString('ja-JP');
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/${encodeURIComponent(LOG_SHEET_NAME)}!A:B:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+    await authFetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/${encodeURIComponent(LOG_SHEET_NAME)}!A:B:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
       method: 'POST',
       headers: { ...authHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ values: [[now, email]] })
@@ -483,6 +500,7 @@ function startSignIn(statusId) {
 }
 $('signInBtn').addEventListener('click', () => startSignIn('configStatus'));
 $('signInBtnLogin').addEventListener('click', () => startSignIn('loginStatus'));
+$('signOutBtn').addEventListener('click', () => signOut());
 
 function setStatus(id, msg, type) {
   const el = $(id);
@@ -493,6 +511,17 @@ function setStatus(id, msg, type) {
 function authHeaders() {
   if (!accessToken) throw new Error('ログインしてください');
   return { Authorization: 'Bearer ' + accessToken };
+}
+
+// 認証付きfetchのラッパー。401(トークン失効/取り消し)を検知したら
+// 自動でログアウトし、ログイン画面へ戻す。
+async function authFetch(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    signOut('セッションの有効期限が切れました。お手数ですが、再度ログインしてください。');
+    throw new Error('認証の有効期限が切れました。再度ログインしてください。');
+  }
+  return res;
 }
 
 // ---------- Access request (Slack notification) ----------
@@ -539,7 +568,7 @@ async function loadMasterList() {
   try {
     setStatus('masterStatus', '読み込み中...', '');
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/${MASTER_RANGE}`;
-    const res = await fetch(url, { headers: authHeaders() });
+    const res = await authFetch(url, { headers: authHeaders() });
     if (!res.ok) throw new Error('マスタ読み込みに失敗しました (HTTP ' + res.status + ')');
     const data = await res.json();
     const values = data.values || [];
@@ -633,7 +662,7 @@ let cachedSheetId = null;
 async function getSheetId() {
   if (cachedSheetId != null) return cachedSheetId;
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}?fields=sheets.properties.sheetId`;
-  const res = await fetch(url, { headers: authHeaders() });
+  const res = await authFetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error('シート情報の取得に失敗しました (HTTP ' + res.status + ')');
   const data = await res.json();
   cachedSheetId = data.sheets[0].properties.sheetId;
@@ -647,7 +676,7 @@ async function deleteMasterRow(idx) {
   try {
     setStatus('masterStatus', '削除中...', '');
     const sheetId = await getSheetId();
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}:batchUpdate`, {
+    await authFetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}:batchUpdate`, {
       method: 'POST',
       headers: { ...authHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -736,13 +765,13 @@ $('runClientSelect').addEventListener('change', () => {
 
 async function ensureHeaderRow() {
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A1:H1`;
-  const res = await fetch(url, { headers: authHeaders() });
+  const res = await authFetch(url, { headers: authHeaders() });
   const data = await res.json();
   const row = (data.values && data.values[0]) || [];
   // 見出しが空、または列が不足している場合は全見出しを書き込む(既存データは下の行なので上書きされない)
   const complete = MASTER_HEADER.every((h, i) => row[i]);
   if (!complete) {
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A1:H1?valueInputOption=RAW`, {
+    await authFetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A1:H1?valueInputOption=RAW`, {
       method: 'PUT',
       headers: { ...authHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ values: [MASTER_HEADER] })
@@ -774,14 +803,14 @@ $('saveClientBtn').addEventListener('click', async () => {
     if (existing) {
       // update existing row
       const range = `A${existing.rowNumber}:H${existing.rowNumber}`;
-      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/${range}?valueInputOption=RAW`, {
+      await authFetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/${range}?valueInputOption=RAW`, {
         method: 'PUT',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ values: [rowValues] })
       });
     } else {
       // append new row
-      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A:H:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+      await authFetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A:H:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ values: [rowValues] })
@@ -842,7 +871,7 @@ async function listFilesInFolder(folderId, folderLabel, recursive, out) {
     const fields = encodeURIComponent('nextPageToken, files(id,name,mimeType,webViewLink)');
     let url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
     if (pageToken) url += '&pageToken=' + pageToken;
-    const res = await fetch(url, { headers: authHeaders() });
+    const res = await authFetch(url, { headers: authHeaders() });
     if (!res.ok) throw new Error(`フォルダ一覧取得に失敗しました (HTTP ${res.status}): ${folderLabel}`);
     const data = await res.json();
     for (const f of (data.files || [])) {
@@ -868,7 +897,7 @@ class TiffReader {
   }
   async fetchRange(start, length) {
     const end = start + length - 1;
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${this.fileId}?alt=media`, {
+    const res = await authFetch(`https://www.googleapis.com/drive/v3/files/${this.fileId}?alt=media`, {
       headers: { ...authHeaders(), Range: `bytes=${start}-${end}` }
     });
     if (!(res.ok || res.status === 206)) throw new Error('ファイル取得に失敗 (HTTP ' + res.status + ')');
