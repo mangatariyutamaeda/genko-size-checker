@@ -362,6 +362,19 @@ function updateAuthVisibility() {
   $('loginScreen').style.display = authed ? 'none' : '';
   $('appMain').style.display = authed ? '' : 'none';
   $('settingsToggleBtn').style.display = authed ? '' : 'none';
+  if (authed) maybeOpenUsageGuide();
+}
+
+// 使い方ガイド: 初回に「アプリ画面が実際に見えたタイミング」で一度だけ自動で開く。
+// (ページ読込時に開くと、ログイン画面表示中に既読化されてしまい初回ユーザーが見られないため)
+function maybeOpenUsageGuide() {
+  const guide = $('usageGuide');
+  if (!guide) return;
+  let seen = false;
+  try { seen = !!localStorage.getItem('msc_seen_usage_guide'); } catch (e) {}
+  if (seen) return;
+  guide.open = true;
+  try { localStorage.setItem('msc_seen_usage_guide', '1'); } catch (e) {}
 }
 
 // ログアウト。トークンとキャッシュを破棄し、ログイン画面へ戻す。
@@ -1281,18 +1294,6 @@ if (MASTER_SHEET_ID && !cachedToken()) {
   setStatus('masterStatus', 'ログイン後に自動読み込みされます。', '');
 }
 restoreSessionOnLoad();
-
-// 使い方ガイド: 初回のみ自動で開く。一度閉じたら以降は畳んだまま。
-(function initUsageGuide() {
-  const guide = $('usageGuide');
-  if (!guide) return;
-  let seen = false;
-  try { seen = !!localStorage.getItem('msc_seen_usage_guide'); } catch (e) {}
-  guide.open = !seen;
-  guide.addEventListener('toggle', () => {
-    try { localStorage.setItem('msc_seen_usage_guide', '1'); } catch (e) {}
-  });
-})();
 </script>
 </body>
 </html>
