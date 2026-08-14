@@ -90,7 +90,7 @@
 
 <div id="loginScreen" class="card">
   <h2>ログイン</h2>
-  <div class="sub" style="margin-bottom:14px;">このツールの利用にはGoogleアカウントでのログインが必要です。事前に登録されたアカウントのみ利用できます。</div>
+  <div class="sub" style="margin-bottom:14px;">ログインすると、取引先ごとの原稿仕様(サイズ・DPI・カラーモードなど)に沿って、Google Drive上の画像をまとめてチェックできます。<br>ご利用にはGoogleアカウントでのログインが必要です。事前に登録されたアカウントのみ利用できます。</div>
   <button id="signInBtnLogin">Googleでログイン</button>
   <div class="status" id="loginStatus"></div>
 
@@ -223,18 +223,29 @@
 </div>
 
 <div class="view active" id="view-run">
+<details class="guide" id="usageGuide">
+  <summary>📘 はじめての方へ ・ 使い方(3ステップ)</summary>
+  <div class="content">
+    <ol>
+      <li><b>取引先を選ぶ</b> … 下の「① 取引先を選択」で選ぶと、その取引先の判定条件(サイズ・DPI・カラーモード・拡張子)が自動で入ります。</li>
+      <li><b>チェックしたいGoogle Driveのフォルダを貼り付ける</b> … Driveでフォルダを開いたときのURLをそのままコピーして貼り付けます。複数フォルダは改行で追加できます。中のサブフォルダもまとめて調べたいときは、下の「サブフォルダも含めてチェックする」にチェックを入れてください。</li>
+      <li><b>「チェック開始」を押す</b> … 各画像の寸法(px)・DPI・カラーモード・拡張子を条件と照合し、OK / NG を一覧で表示します。結果は「CSVでダウンロード」で保存できます。</li>
+    </ol>
+    <p style="margin:10px 0 0;">💡 画像はあなたのブラウザ内だけで読み込まれ、どこかへアップロードされることはありません。取引先の条件を追加・変更したいときは、上の「取引先マスタ管理」タブから行えます。</p>
+  </div>
+</details>
 <div class="card">
   <h2>チェック実行</h2>
   <label>① 取引先を選択(下のサイズが自動で入力されます)</label>
   <select id="runClientSelect"><option value="">-- 取引先を選択してください --</option></select>
   <label style="margin-top:16px;">適用されるチェック条件 <span class="badge">取引先選択で自動表示</span></label>
   <input type="text" id="runSpecSummary" placeholder="取引先を選択すると、この取引先の判定条件が表示されます" readonly>
-  <label style="margin-top:16px;">対象フォルダ(Google DriveのフォルダURL または ID。1行に1つ、複数可)</label>
+  <label style="margin-top:16px;">② 対象フォルダ(Google DriveのフォルダURL または ID。1行に1つ、複数可)</label>
   <textarea id="folderList" placeholder="https://drive.google.com/drive/folders/xxxxx&#10;https://drive.google.com/drive/folders/yyyyy"></textarea>
   <label style="display:flex; align-items:center; gap:6px; margin-top:10px;">
     <input type="checkbox" id="recursiveCheck" style="width:auto;"> サブフォルダも含めてチェックする
   </label>
-  <button id="runCheckBtn">チェック開始</button>
+  <button id="runCheckBtn">③ チェック開始</button>
   <button id="csvBtn" class="secondary" disabled>結果をCSVでダウンロード</button>
   <div class="progress-bar" id="progressBar" style="display:none;"><div class="progress-bar-inner" id="progressBarInner"></div></div>
   <div class="status" id="checkStatus"></div>
@@ -1270,6 +1281,18 @@ if (MASTER_SHEET_ID && !cachedToken()) {
   setStatus('masterStatus', 'ログイン後に自動読み込みされます。', '');
 }
 restoreSessionOnLoad();
+
+// 使い方ガイド: 初回のみ自動で開く。一度閉じたら以降は畳んだまま。
+(function initUsageGuide() {
+  const guide = $('usageGuide');
+  if (!guide) return;
+  let seen = false;
+  try { seen = !!localStorage.getItem('msc_seen_usage_guide'); } catch (e) {}
+  guide.open = !seen;
+  guide.addEventListener('toggle', () => {
+    try { localStorage.setItem('msc_seen_usage_guide', '1'); } catch (e) {}
+  });
+})();
 </script>
 </body>
 </html>
