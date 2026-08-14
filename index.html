@@ -313,20 +313,91 @@ $('saveConfigBtn').addEventListener('click', () => {
   initTokenClient();
 });
 
+// ---------- ログイン保持(トークンのキャッシュ + 無音更新) ----------
+let silentInProgress = false;
+let refreshTimer = null;
+
+function gisReady() {
+  return !!(window.google && google.accounts && google.accounts.oauth2);
+}
+function whenGisReady(cb, tries) {
+  tries = tries || 0;
+  if (gisReady()) return cb();
+  if (tries > 100) return; // 最大約10秒待つ
+  setTimeout(() => whenGisReady(cb, tries + 1), 100);
+}
+
+function onToken(token, expiresInSec) {
+  accessToken = token;
+  const expAt = Date.now() + (expiresInSec * 1000) - 60000; // 60秒のバッファ
+  try {
+    localStorage.setItem('msc_token', token);
+    localStorage.setItem('msc_token_exp', String(expAt));
+  } catch (e) {}
+  scheduleRefresh();
+}
+function cachedToken() {
+  try {
+    const t = localStorage.getItem('msc_token');
+    const exp = parseInt(localStorage.getItem('msc_token_exp') || '0', 10);
+    if (t && Date.now() < exp) return t;
+  } catch (e) {}
+  return null;
+}
+function scheduleRefresh() {
+  clearTimeout(refreshTimer);
+  const exp = parseInt(localStorage.getItem('msc_token_exp') || '0', 10);
+  const ms = exp - Date.now() - 30000; // 期限の30秒前に更新
+  if (ms > 0 && ms < 3 * 3600 * 1000) refreshTimer = setTimeout(silentSignIn, ms);
+}
+// ポップアップ・同意画面なしでトークンを取得(Googleセッションが生きていて同意済みの場合)
+function silentSignIn() {
+  whenGisReady(() => {
+    if (!tokenClient) initTokenClient();
+    if (!tokenClient) return;
+    silentInProgress = true;
+    try { tokenClient.requestAccessToken({ prompt: 'none' }); }
+    catch (e) { silentInProgress = false; }
+  });
+}
+// ログイン記録は多重にならないよう12時間に1回だけ
+function maybeLogLogin() {
+  try {
+    const last = parseInt(localStorage.getItem('msc_last_login_log') || '0', 10);
+    if (Date.now() - last < 12 * 3600 * 1000) return;
+    localStorage.setItem('msc_last_login_log', String(Date.now()));
+  } catch (e) {}
+  logLoginEvent();
+}
+// 起動時: 有効なキャッシュがあれば即復元。無ければ無音サインインを試みる
+function restoreSessionOnLoad() {
+  const t = cachedToken();
+  if (t) {
+    accessToken = t;
+    setStatus('configStatus', 'ログイン済みです(前回のセッションを復元)。', 'ok');
+    scheduleRefresh();
+    if (MASTER_SHEET_ID) loadMasterList();
+  } else {
+    silentSignIn();
+  }
+}
+
 function initTokenClient() {
-  if (!CLIENT_ID || typeof google === 'undefined') return;
+  if (!CLIENT_ID || !gisReady()) return;
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: CLIENT_ID,
     scope: SCOPES,
     callback: (resp) => {
       if (resp.error) {
+        if (silentInProgress) { silentInProgress = false; return; } // 無音更新の失敗は静かに無視(ボタンでの手動ログインに委ねる)
         setStatus('configStatus', 'ログインに失敗しました: ' + resp.error, 'error');
         return;
       }
-      accessToken = resp.access_token;
+      silentInProgress = false;
+      onToken(resp.access_token, parseInt(resp.expires_in, 10) || 3600);
       setStatus('configStatus', 'ログイン済みです。', 'ok');
       if (MASTER_SHEET_ID) loadMasterList();
-      logLoginEvent();
+      maybeLogLogin();
     }
   });
 }
@@ -371,11 +442,16 @@ async function logLoginEvent() {
     // ログイン記録の失敗は通常利用をブロックしない
   }
 }
-initTokenClient();
+whenGisReady(initTokenClient);
+restoreSessionOnLoad();
 
 $('signInBtn').addEventListener('click', () => {
-  if (!tokenClient) initTokenClient();
-  tokenClient.requestAccessToken({ prompt: accessToken ? '' : 'consent' });
+  silentInProgress = false;
+  whenGisReady(() => {
+    if (!tokenClient) initTokenClient();
+    if (!tokenClient) { setStatus('configStatus', 'Googleの読み込み中です。数秒後に再度お試しください。', 'error'); return; }
+    tokenClient.requestAccessToken({ prompt: accessToken ? '' : 'consent' });
+  });
 });
 
 function setStatus(id, msg, type) {
@@ -509,6 +585,11 @@ function loadRowIntoForm(idx) {
   $('specWidthOp').value = r.widthOp || 'ちょうど';
   $('specHeightOp').value = r.heightOp || 'ちょうど';
   $('specExt').value = r.ext || '';
+  // 編集対象をフォームに読み込んだことを分かりやすく(フォームへスクロール+合図)
+  setStatus('masterStatus', `「${r.name}」を編集中です。内容を変更して「この内容をマスタに保存」を押してください。`, 'ok');
+  const nameEl = $('clientName');
+  nameEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  nameEl.focus();
 }
 
 let cachedSheetId = null;
