@@ -1,0 +1,9 @@
+{
+  "name": "genko-size-checker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "原稿サイズチェッカー(静的HTML)。ロジックの単体テストのみ Node で実行。",
+  "scripts": {
+    "test": "node tests/checker.test.mjs"
+  }
+}

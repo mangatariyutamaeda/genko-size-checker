@@ -189,7 +189,6 @@
         <option value="">指定なし(不問)</option>
         <option value="tiff">tiff</option>
         <option value="jpg">jpg</option>
-        <option value="png">png</option>
       </select>
     </div>
   </div>
@@ -777,9 +776,10 @@ function normExt(ext) {
   return ext;
 }
 function isSupportedImage(name, mimeType) {
-  if (mimeType === 'image/tiff' || mimeType === 'image/jpeg' || mimeType === 'image/png') return true;
+  // 解析対応はTIFFとJPEGのみ(PNG等は走査対象外)
+  if (mimeType === 'image/tiff' || mimeType === 'image/jpeg') return true;
   const e = fileExt(name);
-  return ['tif', 'tiff', 'jpg', 'jpeg', 'png'].includes(e);
+  return ['tif', 'tiff', 'jpg', 'jpeg'].includes(e);
 }
 // 期待拡張子とファイル名を照合。true=一致 / false=不一致 / null=チェック対象外
 function checkExtension(expectedExt, name) {
@@ -1031,7 +1031,7 @@ async function parseJpegSpec(fileId) {
 async function parseImageSpec(file) {
   const e = fileExt(file.name);
   if (e === 'jpg' || e === 'jpeg') return await parseJpegSpec(file.id);
-  return await parseTiffSpec(file.id); // tif/tiff (png等は未対応でTIFF扱い→解析エラーになる)
+  return await parseTiffSpec(file.id); // tif/tiff
 }
 
 // ---------- Concurrency-limited runner ----------
