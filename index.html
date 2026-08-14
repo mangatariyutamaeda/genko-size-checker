@@ -77,7 +77,7 @@
 <div class="topbar">
   <div>
     <h1>原稿サイズチェッカー</h1>
-    <div class="sub" style="margin-bottom:0;">Google Drive上のTIFファイルの寸法(px)・DPI・カラーモード(グレースケール/カラー)を、取引先ごとのマスタ設定と照合します。すべてブラウザ内で完結し、サーバーへのアップロードは行いません。</div>
+    <div class="sub" style="margin-bottom:0;">Google Drive上の画像(TIFF/JPEG)の寸法(px)・DPI・カラーモード・拡張子を、取引先ごとのマスタ設定と照合します(幅・高さは以上/ちょうど/以下で判定可)。すべてブラウザ内で完結し、サーバーへのアップロードは行いません。</div>
     <div class="sub" style="margin-bottom:0;"><a href="https://drive.google.com/drive/folders/1sqqSQp3UWY-JS7FOWel1UgqbFy6zmq6o" target="_blank">📖 コミックシーモアの原稿仕様資料はこちら</a></div>
   </div>
   <button class="gear-btn" id="settingsToggleBtn" title="設定">⚙</button>
@@ -110,7 +110,7 @@
         <li>「APIとサービス」→「認証情報」→「認証情報を作成」→「OAuthクライアントID」を選択。アプリケーションの種類は「ウェブアプリケーション」。</li>
         <li>「承認済みのJavaScript生成元」に、このHTMLファイルを実際に開くURL(例: <code>https://your-team.github.io</code> や社内サーバーのURL)を追加して保存。<b>ローカルで file:// のまま開くと動作しません。</b>GitHub Pages、Google Sites、社内Webサーバーなど、httpsで配信できる場所にこのファイルを置いてください。</li>
         <li>発行された「クライアントID」をコピーし、下の「設定」欄に貼り付けて保存。</li>
-        <li>マスタ用のGoogleスプレッドシートを1つ用意し、1行目に <code>取引先名 / 幅px / 高さpx / DPI / カラーモード</code> の見出しを入れておく(なければツール側の保存操作時に自動で追加されます)。そのスプレッドシートのURLを「設定」欄に貼り付けて保存。</li>
+        <li>マスタ用のGoogleスプレッドシートを1つ用意し、1行目に <code>取引先名 / 幅px / 高さpx / DPI / カラーモード / 幅判定 / 高さ判定 / 拡張子</code> の見出しを入れておく(なければツール側の保存操作時に自動で追加されます)。そのスプレッドシートのURLを「設定」欄に貼り付けて保存。</li>
         <li>「設定」欄で保存したら「Googleでログイン」ボタンからアクセス許可(Drive閲覧・Sheets編集)を承認してください。</li>
       </ol>
     </div>
@@ -141,6 +141,7 @@
       <button id="reloadMasterBtn" class="secondary" style="margin-top:0;">一覧を再読み込み</button>
     </div>
   </div>
+  <div class="sub" style="margin-bottom:0;">数値を空欄にした項目はチェックしません(例: 高さを空欄にすると高さは不問)。幅・高さは「以上/ちょうど/以下」で判定できます。</div>
   <div class="row">
     <div>
       <label>取引先名</label>
@@ -148,22 +149,47 @@
     </div>
     <div>
       <label>幅 (px)</label>
-      <input type="number" id="specWidth" placeholder="例: 3000">
+      <input type="number" id="specWidth" placeholder="例: 3000 / 空欄=不問">
+    </div>
+    <div>
+      <label>幅の判定</label>
+      <select id="specWidthOp">
+        <option value="ちょうど">ちょうど</option>
+        <option value="以上">以上</option>
+        <option value="以下">以下</option>
+      </select>
     </div>
     <div>
       <label>高さ (px)</label>
-      <input type="number" id="specHeight" placeholder="例: 4000">
+      <input type="number" id="specHeight" placeholder="例: 4000 / 空欄=不問">
+    </div>
+    <div>
+      <label>高さの判定</label>
+      <select id="specHeightOp">
+        <option value="ちょうど">ちょうど</option>
+        <option value="以上">以上</option>
+        <option value="以下">以下</option>
+      </select>
     </div>
     <div>
       <label>DPI</label>
-      <input type="number" id="specDpi" placeholder="例: 350">
+      <input type="number" id="specDpi" placeholder="例: 350 / 空欄=不問">
     </div>
     <div>
       <label>カラーモード</label>
       <select id="specColor">
-        <option value="">指定なし(チェックしない)</option>
+        <option value="">指定なし(不問)</option>
         <option value="グレースケール">グレースケール</option>
         <option value="カラー">カラー</option>
+      </select>
+    </div>
+    <div>
+      <label>拡張子</label>
+      <select id="specExt">
+        <option value="">指定なし(不問)</option>
+        <option value="tiff">tiff</option>
+        <option value="jpg">jpg</option>
+        <option value="png">png</option>
       </select>
     </div>
   </div>
@@ -173,7 +199,7 @@
   <div class="table-wrap" id="masterTableWrap" style="margin-top:16px;">
     <table id="masterTable">
       <thead>
-        <tr><th>取引先名</th><th>幅(px)</th><th>高さ(px)</th><th>DPI</th><th>カラーモード</th><th>操作</th></tr>
+        <tr><th>取引先名</th><th>幅(px)</th><th>幅判定</th><th>高さ(px)</th><th>高さ判定</th><th>DPI</th><th>カラーモード</th><th>拡張子</th><th>操作</th></tr>
       </thead>
       <tbody id="masterTableBody"></tbody>
     </table>
@@ -186,25 +212,8 @@
   <h2>チェック実行</h2>
   <label>① 取引先を選択(下のサイズが自動で入力されます)</label>
   <select id="runClientSelect"><option value="">-- 取引先を選択してください --</option></select>
-  <label style="margin-top:16px;">チェック対象のサイズ <span class="badge">取引先選択で自動入力</span></label>
-  <div class="row">
-    <div>
-      <label>幅 (px)</label>
-      <input type="number" id="runSpecWidth" placeholder="取引先を選択すると自動入力" readonly>
-    </div>
-    <div>
-      <label>高さ (px)</label>
-      <input type="number" id="runSpecHeight" placeholder="取引先を選択すると自動入力" readonly>
-    </div>
-    <div>
-      <label>DPI</label>
-      <input type="number" id="runSpecDpi" placeholder="取引先を選択すると自動入力" readonly>
-    </div>
-    <div>
-      <label>カラーモード</label>
-      <input type="text" id="runSpecColor" placeholder="取引先を選択すると自動入力" readonly>
-    </div>
-  </div>
+  <label style="margin-top:16px;">適用されるチェック条件 <span class="badge">取引先選択で自動表示</span></label>
+  <input type="text" id="runSpecSummary" placeholder="取引先を選択すると、この取引先の判定条件が表示されます" readonly>
   <label style="margin-top:16px;">対象フォルダ(Google DriveのフォルダURL または ID。1行に1つ、複数可)</label>
   <textarea id="folderList" placeholder="https://drive.google.com/drive/folders/xxxxx&#10;https://drive.google.com/drive/folders/yyyyy"></textarea>
   <label style="display:flex; align-items:center; gap:6px; margin-top:10px;">
@@ -220,7 +229,7 @@
       <thead>
         <tr>
           <th>判定</th><th>ファイル名</th><th>フォルダ</th>
-          <th>幅(px)</th><th>高さ(px)</th><th>DPI</th><th>カラーモード</th>
+          <th>幅(px)</th><th>高さ(px)</th><th>DPI</th><th>カラーモード</th><th>拡張子</th>
           <th>期待値</th><th>詳細</th><th>リンク</th>
         </tr>
       </thead>
@@ -250,8 +259,9 @@ let CLIENT_ID = localStorage.getItem('msc_client_id') || DEFAULT_CLIENT_ID;
 let MASTER_SHEET_ID = localStorage.getItem('msc_master_sheet_id') || DEFAULT_MASTER_SHEET_ID;
 let accessToken = null;
 let tokenClient = null;
-let masterRows = []; // {rowNumber, name, width, height, dpi}
+let masterRows = []; // {rowNumber, name, width, widthOp, height, heightOp, dpi, color, ext}
 let checkResults = [];
+let runSpec = null; // 選択中取引先の判定条件 {name, width, widthOp, height, heightOp, dpi, color, ext}
 
 const $ = (id) => document.getElementById(id);
 
@@ -408,7 +418,9 @@ $('accessRequestBtn').addEventListener('click', () => {
 });
 
 // ---------- Master (Google Sheets) ----------
-const MASTER_RANGE = 'A:E';
+// 列: A取引先名 B幅px C高さpx D DPI Eカラーモード F幅判定 G高さ判定 H拡張子
+const MASTER_RANGE = 'A:H';
+const MASTER_HEADER = ['取引先名', '幅px', '高さpx', 'DPI', 'カラーモード', '幅判定', '高さ判定', '拡張子'];
 
 async function loadMasterList() {
   try {
@@ -429,7 +441,10 @@ async function loadMasterList() {
         width: r[1],
         height: r[2],
         dpi: r[3],
-        color: r[4] || ''
+        color: r[4] || '',
+        widthOp: r[5] || 'ちょうど',
+        heightOp: r[6] || 'ちょうど',
+        ext: r[7] || ''
       });
     }
     const sel = $('clientSelect');
@@ -462,12 +477,17 @@ function renderMasterTable() {
   body.innerHTML = '';
   masterRows.forEach((r, idx) => {
     const tr = document.createElement('tr');
+    const hasW = r.width !== '' && r.width != null;
+    const hasH = r.height !== '' && r.height != null;
     tr.innerHTML = `
       <td>${escapeHtml(r.name)}</td>
-      <td>${escapeHtml(r.width)}</td>
-      <td>${escapeHtml(r.height)}</td>
-      <td>${escapeHtml(r.dpi)}</td>
+      <td>${hasW ? escapeHtml(r.width) : '不問'}</td>
+      <td>${hasW ? escapeHtml(r.widthOp) : '-'}</td>
+      <td>${hasH ? escapeHtml(r.height) : '不問'}</td>
+      <td>${hasH ? escapeHtml(r.heightOp) : '-'}</td>
+      <td>${(r.dpi !== '' && r.dpi != null) ? escapeHtml(r.dpi) : '不問'}</td>
       <td>${escapeHtml(r.color || '指定なし')}</td>
+      <td>${escapeHtml(r.ext || '指定なし')}</td>
       <td>
         <button class="secondary" style="margin:0 4px 0 0; padding:4px 10px;" data-action="edit" data-idx="${idx}">編集</button>
         <button class="secondary" style="margin:0; padding:4px 10px; color:var(--ng); border-color:var(--ng);" data-action="delete" data-idx="${idx}">削除</button>
@@ -486,6 +506,9 @@ function loadRowIntoForm(idx) {
   $('specHeight').value = r.height;
   $('specDpi').value = r.dpi;
   $('specColor').value = r.color || '';
+  $('specWidthOp').value = r.widthOp || 'ちょうど';
+  $('specHeightOp').value = r.heightOp || 'ちょうど';
+  $('specExt').value = r.ext || '';
 }
 
 let cachedSheetId = null;
@@ -542,6 +565,9 @@ $('clientSelect').addEventListener('change', () => {
     $('specHeight').value = '';
     $('specDpi').value = '';
     $('specColor').value = '';
+    $('specWidthOp').value = 'ちょうど';
+    $('specHeightOp').value = 'ちょうど';
+    $('specExt').value = '';
     return;
   }
   const r = masterRows[idx];
@@ -550,43 +576,58 @@ $('clientSelect').addEventListener('change', () => {
   $('specHeight').value = r.height;
   $('specDpi').value = r.dpi;
   $('specColor').value = r.color || '';
+  $('specWidthOp').value = r.widthOp || 'ちょうど';
+  $('specHeightOp').value = r.heightOp || 'ちょうど';
+  $('specExt').value = r.ext || '';
 });
+
+// masterRowから判定条件オブジェクトを作る
+function toSpec(r) {
+  return {
+    name: r.name,
+    width: r.width, widthOp: r.widthOp || 'ちょうど',
+    height: r.height, heightOp: r.heightOp || 'ちょうど',
+    dpi: r.dpi,
+    color: r.color || '',
+    ext: r.ext || ''
+  };
+}
+
+// 条件を人が読める文字列に
+function describeSpec(s) {
+  const parts = [];
+  const hasVal = v => v !== '' && v != null;
+  parts.push(hasVal(s.width) ? `幅 ${s.width}px ${s.widthOp}` : '幅 不問');
+  parts.push(hasVal(s.height) ? `高さ ${s.height}px ${s.heightOp}` : '高さ 不問');
+  parts.push(hasVal(s.dpi) ? `${s.dpi}dpi` : 'DPI 不問');
+  parts.push(s.color ? s.color : 'カラー不問');
+  parts.push(s.ext ? `拡張子 ${s.ext}` : '拡張子不問');
+  return parts.join(' / ');
+}
 
 $('runClientSelect').addEventListener('change', () => {
   const idx = $('runClientSelect').value;
   if (idx === '') {
-    $('runSpecWidth').value = '';
-    $('runSpecHeight').value = '';
-    $('runSpecDpi').value = '';
-    $('runSpecColor').value = '';
-    $('runSpecColor').dataset.expected = '';
+    runSpec = null;
+    $('runSpecSummary').value = '';
     return;
   }
-  const r = masterRows[idx];
-  $('runSpecWidth').value = r.width;
-  $('runSpecHeight').value = r.height;
-  $('runSpecDpi').value = r.dpi;
-  $('runSpecColor').value = r.color || '指定なし';
-  $('runSpecColor').dataset.expected = r.color || '';
+  runSpec = toSpec(masterRows[idx]);
+  $('runSpecSummary').value = describeSpec(runSpec);
 });
 
 async function ensureHeaderRow() {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A1:E1`;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A1:H1`;
   const res = await fetch(url, { headers: authHeaders() });
   const data = await res.json();
   const row = (data.values && data.values[0]) || [];
-  if (!row.length) {
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A1:E1?valueInputOption=RAW`, {
+  // 見出しが空、または列が不足している場合は全見出しを書き込む(既存データは下の行なので上書きされない)
+  const complete = MASTER_HEADER.every((h, i) => row[i]);
+  if (!complete) {
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A1:H1?valueInputOption=RAW`, {
       method: 'PUT',
       headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ values: [['取引先名', '幅px', '高さpx', 'DPI', 'カラーモード']] })
-    });
-  } else if (!row[4]) {
-    // 既存のA:Dマスタにカラーモード見出しだけ追加
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/E1?valueInputOption=RAW`, {
-      method: 'PUT',
-      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ values: [['カラーモード']] })
+      body: JSON.stringify({ values: [MASTER_HEADER] })
     });
   }
 }
@@ -599,28 +640,33 @@ $('saveClientBtn').addEventListener('click', async () => {
     const height = $('specHeight').value.trim();
     const dpi = $('specDpi').value.trim();
     const color = $('specColor').value;
-    if (!name || !width || !height || !dpi) throw new Error('取引先名・幅・高さ・DPIをすべて入力してください');
+    const widthOp = $('specWidthOp').value;
+    const heightOp = $('specHeightOp').value;
+    const ext = $('specExt').value;
+    if (!name) throw new Error('取引先名を入力してください');
+    if (!width && !height && !dpi && !color && !ext) throw new Error('幅・高さ・DPI・カラーモード・拡張子のうち、少なくとも1つは条件を設定してください');
 
     setStatus('masterStatus', '保存中...', '');
     await ensureHeaderRow();
 
     const selIdx = $('clientSelect').value;
     const existing = selIdx !== '' ? masterRows[selIdx] : masterRows.find(r => r.name === name);
+    const rowValues = [name, width, height, dpi, color, widthOp, heightOp, ext];
 
     if (existing) {
       // update existing row
-      const range = `A${existing.rowNumber}:E${existing.rowNumber}`;
+      const range = `A${existing.rowNumber}:H${existing.rowNumber}`;
       await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/${range}?valueInputOption=RAW`, {
         method: 'PUT',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values: [[name, width, height, dpi, color]] })
+        body: JSON.stringify({ values: [rowValues] })
       });
     } else {
       // append new row
-      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A:E:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/A:H:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values: [[name, width, height, dpi, color]] })
+        body: JSON.stringify({ values: [rowValues] })
       });
     }
     setStatus('masterStatus', '保存しました。', 'ok');
@@ -629,6 +675,45 @@ $('saveClientBtn').addEventListener('click', async () => {
     setStatus('masterStatus', 'エラー: ' + e.message, 'error');
   }
 });
+
+// ---------- Image type / extension helpers ----------
+// 期待拡張子名 -> 実ファイル拡張子の候補
+const EXT_ALIASES = { tiff: ['.tif', '.tiff'], tif: ['.tif', '.tiff'], jpg: ['.jpg', '.jpeg'], jpeg: ['.jpg', '.jpeg'], png: ['.png'] };
+
+function fileExt(name) {
+  const m = String(name).toLowerCase().match(/\.([a-z0-9]+)$/);
+  return m ? m[1] : '';
+}
+// 表示・照合用に拡張子を正規化(jpeg->jpg, tif->tiff)
+function normExt(ext) {
+  ext = (ext || '').toLowerCase().replace(/^\./, '');
+  if (ext === 'jpeg') return 'jpg';
+  if (ext === 'tif') return 'tiff';
+  return ext;
+}
+function isSupportedImage(name, mimeType) {
+  if (mimeType === 'image/tiff' || mimeType === 'image/jpeg' || mimeType === 'image/png') return true;
+  const e = fileExt(name);
+  return ['tif', 'tiff', 'jpg', 'jpeg', 'png'].includes(e);
+}
+// 期待拡張子とファイル名を照合。true=一致 / false=不一致 / null=チェック対象外
+function checkExtension(expectedExt, name) {
+  if (!expectedExt) return null;
+  const cands = EXT_ALIASES[expectedExt.toLowerCase()] || ['.' + expectedExt.toLowerCase()];
+  const lower = String(name).toLowerCase();
+  return cands.some(e => lower.endsWith(e));
+}
+
+// 数値条件の照合。true=OK / false=NG / null=対象外(空欄)
+function checkDimension(expected, actual, op) {
+  if (expected === '' || expected == null) return null; // 空欄=不問
+  const exp = parseInt(expected, 10);
+  if (isNaN(exp)) return null;
+  if (actual == null) return false; // 実測が取れない
+  if (op === '以上') return actual >= exp;
+  if (op === '以下') return actual <= exp;
+  return actual === exp; // ちょうど(既定)
+}
 
 // ---------- Drive file listing ----------
 async function listFilesInFolder(folderId, folderLabel, recursive, out) {
@@ -648,8 +733,7 @@ async function listFilesInFolder(folderId, folderLabel, recursive, out) {
         }
         continue;
       }
-      const lower = f.name.toLowerCase();
-      if (f.mimeType === 'image/tiff' || lower.endsWith('.tif') || lower.endsWith('.tiff')) {
+      if (isSupportedImage(f.name, f.mimeType)) {
         out.push({ id: f.id, name: f.name, folder: folderLabel, webViewLink: f.webViewLink });
       }
     }
@@ -810,6 +894,61 @@ function checkColorMode(expected, mode) {
   return null;
 }
 
+// ---------- JPEG parser (markers, ranged read) ----------
+async function parseJpegSpec(fileId) {
+  const reader = new TiffReader(fileId); // 汎用のレンジ読み取り
+  const soi = await reader.getBytes(0, 2);
+  if (!(soi[0] === 0xFF && soi[1] === 0xD8)) throw new Error('JPEG形式ではありません');
+  let offset = 2;
+  let dpiX = null, dpiY = null, width = null, height = null, comps = null;
+  for (let guard = 0; guard < 2000; guard++) {
+    let hdr = await reader.getBytes(offset, 2);
+    // マーカーは0xFF開始。埋めの0xFFを読み飛ばす
+    while (hdr[0] === 0xFF && hdr[1] === 0xFF) { offset += 1; hdr = await reader.getBytes(offset, 2); }
+    if (hdr[0] !== 0xFF) { offset += 1; continue; } // 同期外れ(通常発生しない)
+    const marker = hdr[1];
+    offset += 2;
+    // 長さを持たないマーカー(SOI/EOI/RSTn/TEM)
+    if (marker === 0xD8 || marker === 0xD9 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+    const lenB = await reader.getBytes(offset, 2);
+    const segLen = (lenB[0] << 8) | lenB[1]; // 長さ2バイト自身を含む
+    const segStart = offset + 2;
+    if (marker === 0xE0) { // APP0(JFIF): 解像度
+      const d = await reader.getBytes(segStart, Math.min(Math.max(segLen - 2, 1), 16));
+      if (d.length >= 12 && d[0] === 0x4A && d[1] === 0x46 && d[2] === 0x49 && d[3] === 0x46 && d[4] === 0x00) {
+        const units = d[7];
+        const xd = (d[8] << 8) | d[9];
+        const yd = (d[10] << 8) | d[11];
+        if (units === 1) { dpiX = xd; dpiY = yd; }           // dots/inch
+        else if (units === 2) { dpiX = Math.round(xd * 2.54); dpiY = Math.round(yd * 2.54); } // dots/cm
+        // units 0 は縦横比のみ = 実DPI不明
+      }
+    } else if (marker >= 0xC0 && marker <= 0xCF && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC) {
+      // SOFn: 精度(1) 高さ(2) 幅(2) 成分数(1)
+      const d = await reader.getBytes(segStart, 6);
+      height = (d[1] << 8) | d[2];
+      width = (d[3] << 8) | d[4];
+      comps = d[5];
+      break;
+    }
+    offset = segStart + (segLen - 2);
+  }
+  if (width == null || height == null) throw new Error('JPEGの寸法情報が見つかりません');
+  let colorMode;
+  if (comps === 1) colorMode = 'グレースケール';
+  else if (comps === 4) colorMode = 'CMYK';
+  else if (comps === 3) colorMode = 'カラー';
+  else colorMode = comps ? 'カラー' : '不明';
+  return { width, height, dpiX, dpiY, colorMode };
+}
+
+// 拡張子に応じてTIFF/JPEGパーサーを振り分け
+async function parseImageSpec(file) {
+  const e = fileExt(file.name);
+  if (e === 'jpg' || e === 'jpeg') return await parseJpegSpec(file.id);
+  return await parseTiffSpec(file.id); // tif/tiff (png等は未対応でTIFF扱い→解析エラーになる)
+}
+
 // ---------- Concurrency-limited runner ----------
 async function runPool(items, worker, concurrency, onProgress) {
   let i = 0, done = 0;
@@ -835,11 +974,8 @@ async function runPool(items, worker, concurrency, onProgress) {
 $('runCheckBtn').addEventListener('click', async () => {
   try {
     if (!accessToken) throw new Error('先にGoogleでログインしてください');
-    const specWidth = parseInt($('runSpecWidth').value, 10);
-    const specHeight = parseInt($('runSpecHeight').value, 10);
-    const specDpi = parseInt($('runSpecDpi').value, 10);
-    const specColor = $('runSpecColor').dataset.expected || '';
-    if (!specWidth || !specHeight || !specDpi) throw new Error('上の「取引先を選択」からチェック対象の取引先を選んでください');
+    if (!runSpec) throw new Error('上の「取引先を選択」からチェック対象の取引先を選んでください');
+    const s = runSpec;
 
     const folderLines = $('folderList').value.split('\n').map(s => s.trim()).filter(Boolean);
     if (!folderLines.length) throw new Error('対象フォルダを1つ以上入力してください');
@@ -860,40 +996,36 @@ $('runCheckBtn').addEventListener('click', async () => {
     }
 
     if (!allFiles.length) {
-      setStatus('checkStatus', '対象となるtif/tiffファイルが見つかりませんでした。', 'error');
+      setStatus('checkStatus', '対象となる画像ファイル(tif/tiff/jpg)が見つかりませんでした。', 'error');
       $('runCheckBtn').disabled = false;
       return;
     }
 
     $('progressBar').style.display = 'block';
     setStatus('checkStatus', `0 / ${allFiles.length} 件処理中...`, '');
+    const expectedText = describeSpec(s);
 
     await runPool(allFiles, async (file) => {
-      let spec;
+      let spec = null;
       let reason = '';
       let ok = false;
+      const reasons = [];
+      // 拡張子チェックは解析前でも判定可能
+      const extResult = checkExtension(s.ext, file.name); // true/false/null
+      if (extResult === false) reasons.push(`拡張子不一致(期待 ${s.ext} / 実測 ${normExt(fileExt(file.name)) || '不明'})`);
       try {
-        spec = await parseTiffSpec(file.id);
-        const widthOk = spec.width === specWidth;
-        const heightOk = spec.height === specHeight;
-        const dpiOk = spec.dpiX === specDpi && spec.dpiY === specDpi;
-        const colorResult = checkColorMode(specColor, spec.colorMode); // true/false/null
-        ok = widthOk && heightOk && dpiOk && colorResult !== false;
-        if (!ok) {
-          const reasons = [];
-          if (!widthOk || !heightOk) reasons.push(`寸法不一致(実測 ${spec.width || '?'}×${spec.height || '?'}px)`);
-          if (!dpiOk) reasons.push(`DPI不一致(実測 X:${spec.dpiX ?? '不明'} / Y:${spec.dpiY ?? '不明'})`);
-          if (colorResult === false) reasons.push(`カラーモード不一致(期待 ${specColor} / 実測 ${spec.colorMode || '不明'})`);
-          reason = reasons.join(' / ');
-        }
+        spec = await parseImageSpec(file);
+        if (checkDimension(s.width, spec.width, s.widthOp) === false) reasons.push(`幅不一致(期待 ${s.width}px ${s.widthOp} / 実測 ${spec.width ?? '不明'}px)`);
+        if (checkDimension(s.height, spec.height, s.heightOp) === false) reasons.push(`高さ不一致(期待 ${s.height}px ${s.heightOp} / 実測 ${spec.height ?? '不明'}px)`);
+        if (checkDimension(s.dpi, spec.dpiX, 'ちょうど') === false || checkDimension(s.dpi, spec.dpiY, 'ちょうど') === false) reasons.push(`DPI不一致(期待 ${s.dpi} / 実測 X:${spec.dpiX ?? '不明'} / Y:${spec.dpiY ?? '不明'})`);
+        if (checkColorMode(s.color, spec.colorMode) === false) reasons.push(`カラーモード不一致(期待 ${s.color} / 実測 ${spec.colorMode || '不明'})`);
       } catch (e) {
-        reason = 'TIFF解析エラー: ' + e.message;
+        reasons.push('解析エラー: ' + e.message);
       }
+      ok = reasons.length === 0;
+      reason = reasons.join(' / ');
 
-      const row = {
-        ok, file, spec, reason,
-        expected: `${specWidth}×${specHeight}px / ${specDpi}dpi` + (specColor ? ` / ${specColor}` : '')
-      };
+      const row = { ok, file, spec, reason, expected: expectedText };
       checkResults.push(row);
       appendResultRow(row);
     }, 4, (done, total) => {
@@ -920,6 +1052,7 @@ function appendResultRow(row) {
   const h = row.spec ? (row.spec.height ?? '?') : '?';
   const dpi = row.spec ? `X:${row.spec.dpiX ?? '?'} / Y:${row.spec.dpiY ?? '?'}` : '?';
   const color = row.spec ? (row.spec.colorMode ?? '?') : '?';
+  const ext = normExt(fileExt(row.file.name)) || '?';
   tr.innerHTML = `
     <td class="${row.ok ? 'pass' : 'fail'}">${row.ok ? 'OK' : 'NG'}</td>
     <td>${escapeHtml(row.file.name)}</td>
@@ -928,6 +1061,7 @@ function appendResultRow(row) {
     <td>${h}</td>
     <td>${dpi}</td>
     <td>${escapeHtml(color)}</td>
+    <td>${escapeHtml(ext)}</td>
     <td>${escapeHtml(row.expected)}</td>
     <td>${escapeHtml(row.reason)}</td>
     <td>${row.file.webViewLink ? `<a href="${row.file.webViewLink}" target="_blank">開く</a>` : ''}</td>
@@ -941,7 +1075,7 @@ function escapeHtml(s) {
 }
 
 $('csvBtn').addEventListener('click', () => {
-  const header = ['判定', 'ファイル名', 'フォルダ', '幅(px)', '高さ(px)', 'DPI(X)', 'DPI(Y)', 'カラーモード', '期待値', '詳細'];
+  const header = ['判定', 'ファイル名', 'フォルダ', '幅(px)', '高さ(px)', 'DPI(X)', 'DPI(Y)', 'カラーモード', '拡張子', '期待値', '詳細'];
   const lines = [header.join(',')];
   for (const r of checkResults) {
     const w = r.spec ? (r.spec.width ?? '') : '';
@@ -949,7 +1083,8 @@ $('csvBtn').addEventListener('click', () => {
     const dx = r.spec ? (r.spec.dpiX ?? '') : '';
     const dy = r.spec ? (r.spec.dpiY ?? '') : '';
     const cm = r.spec ? (r.spec.colorMode ?? '') : '';
-    const cells = [r.ok ? 'OK' : 'NG', r.file.name, r.file.folder, w, h, dx, dy, cm, r.expected, r.reason]
+    const ex = normExt(fileExt(r.file.name));
+    const cells = [r.ok ? 'OK' : 'NG', r.file.name, r.file.folder, w, h, dx, dy, cm, ex, r.expected, r.reason]
       .map(v => `"${String(v).replace(/"/g, '""')}"`);
     lines.push(cells.join(','));
   }
