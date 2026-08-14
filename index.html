@@ -83,6 +83,11 @@
   <button class="gear-btn" id="settingsToggleBtn" title="設定" style="display:none;">⚙</button>
 </div>
 
+<div id="sessionBanner" style="display:none; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; background:var(--ng-bg); border:1px solid var(--ng); color:var(--ng); border-radius:8px; padding:12px 16px; margin-bottom:16px;">
+  <span style="font-size:13px; font-weight:600;">⚠ セッションの有効期限が切れました。再度ログインしてください。</span>
+  <button id="bannerReloginBtn" style="margin:0;">再ログイン</button>
+</div>
+
 <div id="loginScreen" class="card">
   <h2>ログイン</h2>
   <div class="sub" style="margin-bottom:14px;">このツールの利用にはGoogleアカウントでのログインが必要です。事前に登録されたアカウントのみ利用できます。</div>
@@ -360,6 +365,7 @@ function signOut(message) {
   masterRows = [];
   lastTabView = 'view-run';
   showView('view-run');
+  $('sessionBanner').style.display = 'none';
   updateAuthVisibility();
   setStatus('loginStatus', message || 'ログアウトしました。', message ? 'error' : 'ok');
 }
@@ -373,6 +379,7 @@ function onToken(token, expiresInSec) {
     localStorage.setItem('msc_granted_once', '1'); // 一度同意すれば以降は同意画面を省略
   } catch (e) {}
   scheduleRefresh();
+  $('sessionBanner').style.display = 'none';
   updateAuthVisibility();
 }
 function cachedToken() {
@@ -514,15 +521,28 @@ function authHeaders() {
 }
 
 // 認証付きfetchのラッパー。401(トークン失効/取り消し)を検知したら
-// 自動でログアウトし、ログイン画面へ戻す。
+// 画面はそのままに、上部バナーで再ログインを促す(作業中の文脈を保つ)。
 async function authFetch(url, options) {
   const res = await fetch(url, options);
   if (res.status === 401) {
-    signOut('セッションの有効期限が切れました。お手数ですが、再度ログインしてください。');
+    handleSessionExpired();
     throw new Error('認証の有効期限が切れました。再度ログインしてください。');
   }
   return res;
 }
+
+// セッション失効時: トークンとキャッシュを破棄し、今の画面の上部にバナーを表示する。
+// ログイン画面までは飛ばさず、その場から「再ログイン」できるようにする。
+function handleSessionExpired() {
+  accessToken = null;
+  clearTimeout(refreshTimer);
+  try {
+    localStorage.removeItem('msc_token');
+    localStorage.removeItem('msc_token_exp');
+  } catch (e) {}
+  $('sessionBanner').style.display = 'flex';
+}
+$('bannerReloginBtn').addEventListener('click', () => startSignIn('configStatus'));
 
 // ---------- Access request (Slack notification) ----------
 $('accessRequestBtn').addEventListener('click', () => {
