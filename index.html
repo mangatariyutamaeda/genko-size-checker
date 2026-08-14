@@ -443,7 +443,7 @@ async function logLoginEvent() {
   }
 }
 whenGisReady(initTokenClient);
-restoreSessionOnLoad();
+// restoreSessionOnLoad() はスクリプト末尾で呼ぶ(後方で定義される const 群の初期化後)
 
 $('signInBtn').addEventListener('click', () => {
   silentInProgress = false;
@@ -1178,10 +1178,11 @@ $('csvBtn').addEventListener('click', () => {
   URL.revokeObjectURL(url);
 });
 
-// auto-load master if already configured (after GIS script + user re-login each session)
-if (MASTER_SHEET_ID) {
+// 全定義の初期化後にセッション復元(キャッシュがあればマスタも自動読込)
+if (MASTER_SHEET_ID && !cachedToken()) {
   setStatus('masterStatus', 'ログイン後に自動読み込みされます。', '');
 }
+restoreSessionOnLoad();
 </script>
 </body>
 </html>
