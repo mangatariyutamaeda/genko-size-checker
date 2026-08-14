@@ -69,13 +69,13 @@ const pieces = [
   extractFn('readUint16'), extractFn('readUint32'),
   extractFn('classifyColorMode'), extractFn('isGrayscaleMode'), extractFn('checkColorMode'),
   extractFn('fileExt'), extractFn('normExt'), extractFn('isSupportedImage'),
-  extractFn('checkExtension'), extractFn('checkDimension'),
+  extractFn('checkExtension'), extractFn('checkDimension'), extractFn('judgeDpi'),
   extractFn('parseTiffSpec'), extractFn('parseJpegSpec'), extractFn('parseImageSpec'),
   extractFn('toSpec'), extractFn('describeSpec'),
   extractFn('buildAccessRequestText'),
 ];
 const exportNames = ['classifyColorMode','isGrayscaleMode','checkColorMode','fileExt','normExt',
-  'isSupportedImage','checkExtension','checkDimension','parseTiffSpec','parseJpegSpec','parseImageSpec',
+  'isSupportedImage','checkExtension','checkDimension','judgeDpi','parseTiffSpec','parseJpegSpec','parseImageSpec',
   'toSpec','describeSpec','buildAccessRequestText'];
 const C = new Function(pieces.join('\n\n') + '\nreturn {' + exportNames.join(',') + '};')();
 
@@ -115,6 +115,16 @@ check('以上NG', C.checkDimension('1200', 1199, '以上'), false);
 check('以下OK', C.checkDimension('1200', 1200, '以下'), true);
 check('以下NG', C.checkDimension('1200', 1201, '以下'), false);
 check('実測null=NG', C.checkDimension('1200', null, '以上'), false);
+
+console.log('# judgeDpi (不明はNGにせず未検証スキップ)');
+check('DPI不問(期待空)=ok', C.judgeDpi('', null, null).status, 'ok');
+check('両軸不明=未検証(NGにしない)', C.judgeDpi('350', null, null).status, 'unverified');
+check('未検証に注記が付く', C.judgeDpi('350', null, null).detail.includes('DPI未検証'), true);
+check('両軸一致=ok', C.judgeDpi('350', 350, 350).status, 'ok');
+check('不一致=ng', C.judgeDpi('350', 72, 72).status, 'ng');
+check('片軸のみ既知で一致=ok', C.judgeDpi('350', 350, null).status, 'ok');
+check('片軸のみ既知で不一致=ng', C.judgeDpi('350', 72, null).status, 'ng');
+check('X一致Y不一致=ng', C.judgeDpi('350', 350, 72).status, 'ng');
 
 console.log('# fileExt / normExt / isSupportedImage / checkExtension');
 check('fileExt tif', C.fileExt('A.TIF'), 'tif');
@@ -165,7 +175,7 @@ async function judgeReal(master, fx, filename) {
     spec = await C.parseImageSpec(file);
     if (C.checkDimension(s.width, spec.width, s.widthOp) === false) reasons.push('width');
     if (C.checkDimension(s.height, spec.height, s.heightOp) === false) reasons.push('height');
-    if (C.checkDimension(s.dpi, spec.dpiX, 'ちょうど') === false || C.checkDimension(s.dpi, spec.dpiY, 'ちょうど') === false) reasons.push('dpi');
+    if (C.judgeDpi(s.dpi, spec.dpiX, spec.dpiY).status === 'ng') reasons.push('dpi');
     if (C.checkColorMode(s.color, spec.colorMode) === false) reasons.push('color');
   } catch (e) { reasons.push('parse'); }
   return { ok: reasons.length === 0, reasons };

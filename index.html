@@ -935,6 +935,19 @@ function checkDimension(expected, actual, op) {
   return actual === exp; // ちょうど(既定)
 }
 
+// DPIの判定。期待DPIと実測(X/Y)を照合する。
+// DPIは「読めない=違反」ではなく、読めた軸だけ検証し、両軸とも不明なら未検証(OK扱い+注記)にする。
+// (JPEGはJFIFにしか解像度が無く units=0 のことがあり、寸法等が正しくても誤NGになるのを防ぐ)
+// 戻り値: { status: 'ok' | 'ng' | 'unverified', detail: string }
+function judgeDpi(expectedDpi, dpiX, dpiY) {
+  if (expectedDpi === '' || expectedDpi == null) return { status: 'ok', detail: '' }; // 不問
+  const known = [dpiX, dpiY].filter(v => v != null);
+  if (known.length === 0) return { status: 'unverified', detail: 'DPI未検証(ファイルに解像度情報なし)' };
+  const ng = known.some(v => checkDimension(expectedDpi, v, 'ちょうど') === false);
+  if (ng) return { status: 'ng', detail: `DPI不一致(期待 ${expectedDpi} / 実測 X:${dpiX ?? '不明'} / Y:${dpiY ?? '不明'})` };
+  return { status: 'ok', detail: '' };
+}
+
 // ---------- Drive file listing ----------
 async function listFilesInFolder(folderId, folderLabel, recursive, out) {
   let pageToken = '';
@@ -1229,7 +1242,8 @@ $('runCheckBtn').addEventListener('click', async () => {
       let spec = null;
       let reason = '';
       let ok = false;
-      const reasons = [];
+      const reasons = [];       // NG理由(1つでもあればNG)
+      const notes = [];         // 補足(OK判定は変えない。例: DPI未検証)
       // 拡張子チェックは解析前でも判定可能
       const extResult = checkExtension(s.ext, file.name); // true/false/null
       if (extResult === false) reasons.push(`拡張子不一致(期待 ${s.ext} / 実測 ${normExt(fileExt(file.name)) || '不明'})`);
@@ -1237,13 +1251,15 @@ $('runCheckBtn').addEventListener('click', async () => {
         spec = await parseImageSpec(file);
         if (checkDimension(s.width, spec.width, s.widthOp) === false) reasons.push(`幅不一致(期待 ${s.width}px ${s.widthOp} / 実測 ${spec.width ?? '不明'}px)`);
         if (checkDimension(s.height, spec.height, s.heightOp) === false) reasons.push(`高さ不一致(期待 ${s.height}px ${s.heightOp} / 実測 ${spec.height ?? '不明'}px)`);
-        if (checkDimension(s.dpi, spec.dpiX, 'ちょうど') === false || checkDimension(s.dpi, spec.dpiY, 'ちょうど') === false) reasons.push(`DPI不一致(期待 ${s.dpi} / 実測 X:${spec.dpiX ?? '不明'} / Y:${spec.dpiY ?? '不明'})`);
+        const dpiJudge = judgeDpi(s.dpi, spec.dpiX, spec.dpiY);
+        if (dpiJudge.status === 'ng') reasons.push(dpiJudge.detail);
+        else if (dpiJudge.status === 'unverified') notes.push(dpiJudge.detail);
         if (checkColorMode(s.color, spec.colorMode) === false) reasons.push(`カラーモード不一致(期待 ${s.color} / 実測 ${spec.colorMode || '不明'})`);
       } catch (e) {
         reasons.push('解析エラー: ' + e.message);
       }
-      ok = reasons.length === 0;
-      reason = reasons.join(' / ');
+      ok = reasons.length === 0;                    // 注記(notes)はNGにしない
+      reason = reasons.concat(notes).join(' / ');    // 詳細列には理由も注記も表示
 
       const row = { ok, file, spec, reason, expected: expectedText };
       checkResults.push(row);
