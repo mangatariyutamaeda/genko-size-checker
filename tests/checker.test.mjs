@@ -72,10 +72,11 @@ const pieces = [
   extractFn('checkExtension'), extractFn('checkDimension'),
   extractFn('parseTiffSpec'), extractFn('parseJpegSpec'), extractFn('parseImageSpec'),
   extractFn('toSpec'), extractFn('describeSpec'),
+  extractFn('buildAccessRequestText'),
 ];
 const exportNames = ['classifyColorMode','isGrayscaleMode','checkColorMode','fileExt','normExt',
   'isSupportedImage','checkExtension','checkDimension','parseTiffSpec','parseJpegSpec','parseImageSpec',
-  'toSpec','describeSpec'];
+  'toSpec','describeSpec','buildAccessRequestText'];
 const C = new Function(pieces.join('\n\n') + '\nreturn {' + exportNames.join(',') + '};')();
 
 // --- ミニテストランナー ---
@@ -193,6 +194,24 @@ const cmoa  = {name:'シーモア',width:'90',height:'110',dpi:'600',color:'グ�
   // シーモア相当に tif_gray(300x400/350/gray) → 寸法/DPI不一致(90/110/600期待)
   const r = await judgeReal(cmoa, fxMap.tif_gray, 'g.tif');
   check('シーモア: 寸法違い→NG(width/height/dpi)', { ok:r.ok }, { ok:false });
+}
+
+// ===== buildAccessRequestText (Slack通知本文) =====
+console.log('# buildAccessRequestText (Slack通知本文)');
+{
+  const t = C.buildAccessRequestText('山田 太郎', 'yamada@gmail.com', 'https://example.com/app/');
+  check('前田メンションを含む', t.includes('<@UASKEB16X>'), true);
+  check('お名前を含む', t.includes('*お名前:* 山田 太郎'), true);
+  check('メールを含む', t.includes('*メールアドレス:* yamada@gmail.com'), true);
+  check('ツールURLを含む', t.includes('https://example.com/app/'), true);
+  check('案内文の宛名(◯◯さん)を含む', t.includes('山田 太郎 さん'), true);
+  check('コードブロック``` で囲む(開始/終了の2つ)', t.split('```').length === 3, true);
+  check('本人向け3ステップ(チェック開始)を含む', t.includes('チェック開始'), true);
+  check('担当者向け対応手順(Add users)を含む', t.includes('Add users'), true);
+  // Slack webhook ペイロードとして有効なJSONに載ること
+  const payload = 'payload=' + encodeURIComponent(JSON.stringify({ text: t }));
+  const parsed = JSON.parse(decodeURIComponent(payload.slice('payload='.length)));
+  check('Slackペイロードが有効なJSONに往復する', parsed.text === t, true);
 }
 
 // ===== 結果 =====

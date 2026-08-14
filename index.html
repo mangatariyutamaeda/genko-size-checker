@@ -336,6 +336,10 @@ $('saveConfigBtn').addEventListener('click', () => {
   MASTER_SHEET_ID = extractId(sheetInput, 'sheet');
   localStorage.setItem('msc_client_id', CLIENT_ID);
   localStorage.setItem('msc_master_sheet_id', MASTER_SHEET_ID);
+  // シートを切り替えた可能性があるので、前のシートに紐づくキャッシュを破棄する
+  // (残すと行削除が前シートのgidを対象にしてしまう / ログシート判定がずれる)。
+  cachedSheetId = null;
+  logSheetChecked = false;
   refreshConfigInputs();
   setStatus('configStatus', '設定を保存しました。「Googleでログイン」を押してください。', 'ok');
   initTokenClient();
@@ -367,9 +371,14 @@ function updateAuthVisibility() {
 
 // 使い方ガイド: 初回に「アプリ画面が実際に見えたタイミング」で一度だけ自動で開く。
 // (ページ読込時に開くと、ログイン画面表示中に既読化されてしまい初回ユーザーが見られないため)
+// updateAuthVisibility はトークン更新(約1時間毎の無音更新)のたびに呼ばれるので、
+// メモリ内フラグでこのページ読込中は最大1回だけ自動オープンする(localStorage不可の環境でも再展開しない)。
+let usageGuideAutoOpened = false;
 function maybeOpenUsageGuide() {
+  if (usageGuideAutoOpened) return;
   const guide = $('usageGuide');
   if (!guide) return;
+  usageGuideAutoOpened = true;
   let seen = false;
   try { seen = !!localStorage.getItem('msc_seen_usage_guide'); } catch (e) {}
   if (seen) return;
@@ -569,6 +578,31 @@ function handleSessionExpired() {
 $('bannerReloginBtn').addEventListener('click', () => startSignIn('configStatus'));
 
 // ---------- Access request (Slack notification) ----------
+// 申請時にSlackへ送る本文を組み立てる(DOM非依存の純粋関数=単体テスト対象)。
+// <@UASKEB16X> は担当者(前田)のSlackメンバーID。申請時に本人へメンション通知する。
+function buildAccessRequestText(name, email, toolUrl) {
+  // 担当者が本人にそのまま転送できる案内文。Slackのコードブロックにしてコピーしやすくする。
+  const userGuide =
+    `${name} さん\n\n` +
+    `原稿サイズチェッカーのアクセス登録が完了しました。\n` +
+    `下記URLを開き、「Googleでログイン」から申請時のGmailアドレス(${email})でログインしてください。\n\n` +
+    `▼ ツール\n${toolUrl}\n\n` +
+    `▼ かんたんな使い方(3ステップ)\n` +
+    `1. 「取引先を選択」で対象の取引先を選ぶ(サイズ等の判定条件が自動で入ります)\n` +
+    `2. チェックしたいGoogle DriveのフォルダURLを貼り付ける(複数可・改行で追加、サブフォルダも対象にできます)\n` +
+    `3. 「チェック開始」を押すと、各画像がOK / NG で一覧表示されます(結果はCSVで保存可)\n\n` +
+    `画像はブラウザ内だけで読み込まれ、どこかへアップロードされることはありません。ご不明点があればお気軽にご連絡ください。`;
+  return `<@UASKEB16X> *🔔 原稿サイズチェッカー アクセス申請*\n\n` +
+    `*お名前:* ${name}\n` +
+    `*メールアドレス:* ${email}\n\n` +
+    `*対応手順*\n` +
+    `1. <https://console.cloud.google.com/auth/audience?project=nomadic-bedrock-502704-e4|Google Cloud のテストユーザー設定を開く>\n` +
+    `2. 「Add users」を押して上記のメールアドレスを追加して保存\n` +
+    `3. 追加できたら、下の案内文をコピーして本人に連絡\n\n` +
+    `*📋 本人に送る案内文(下をコピペして連絡)*\n` +
+    '```' + `\n${userGuide}\n` + '```';
+}
+
 $('accessRequestBtn').addEventListener('click', () => {
   const name = $('accessRequestName').value.trim();
   const email = $('accessRequestEmail').value.trim();
@@ -583,32 +617,11 @@ $('accessRequestBtn').addEventListener('click', () => {
   setStatus('accessRequestStatus', '送信中...', '');
   // このツール自身のURL(クエリ等は除去)。本人への案内文にそのまま載せる。
   const toolUrl = location.href.split(/[?#]/)[0];
-  // 担当者が本人にそのまま転送できる案内文。Slackのコードブロックにしてコピーしやすくする。
-  const userGuide =
-    `${name} さん\n\n` +
-    `原稿サイズチェッカーのアクセス登録が完了しました。\n` +
-    `下記URLを開き、「Googleでログイン」から申請時のGmailアドレス(${email})でログインしてください。\n\n` +
-    `▼ ツール\n${toolUrl}\n\n` +
-    `▼ かんたんな使い方(3ステップ)\n` +
-    `1. 「取引先を選択」で対象の取引先を選ぶ(サイズ等の判定条件が自動で入ります)\n` +
-    `2. チェックしたいGoogle DriveのフォルダURLを貼り付ける(複数可・改行で追加、サブフォルダも対象にできます)\n` +
-    `3. 「チェック開始」を押すと、各画像がOK / NG で一覧表示されます(結果はCSVで保存可)\n\n` +
-    `画像はブラウザ内だけで読み込まれ、どこかへアップロードされることはありません。ご不明点があればお気軽にご連絡ください。`;
   fetch(SLACK_WEBHOOK_URL, {
     method: 'POST',
     mode: 'no-cors',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'payload=' + encodeURIComponent(JSON.stringify({ text:
-      `*🔔 原稿サイズチェッカー アクセス申請*\n\n` +
-      `*お名前:* ${name}\n` +
-      `*メールアドレス:* ${email}\n\n` +
-      `*対応手順*\n` +
-      `1. <https://console.cloud.google.com/auth/audience?project=nomadic-bedrock-502704-e4|Google Cloud のテストユーザー設定を開く>\n` +
-      `2. 「Add users」を押して上記のメールアドレスを追加して保存\n` +
-      `3. 追加できたら、下の案内文をコピーして本人に連絡\n\n` +
-      `*📋 本人に送る案内文(下をコピペして連絡)*\n` +
-      '```' + `\n${userGuide}\n` + '```'
-    }))
+    body: 'payload=' + encodeURIComponent(JSON.stringify({ text: buildAccessRequestText(name, email, toolUrl) }))
   }).then(() => {
     setStatus('accessRequestStatus', '申請を送信しました。担当者が追加するまで少しお待ちください。', 'ok');
     $('accessRequestName').value = '';
@@ -1271,7 +1284,7 @@ function appendResultRow(row) {
     <td>${escapeHtml(ext)}</td>
     <td>${escapeHtml(row.expected)}</td>
     <td>${escapeHtml(row.reason)}</td>
-    <td>${row.file.webViewLink ? `<a href="${row.file.webViewLink}" target="_blank">開く</a>` : ''}</td>
+    <td>${row.file.webViewLink ? `<a href="${escapeHtml(row.file.webViewLink)}" target="_blank">開く</a>` : ''}</td>
   `;
   $('resultBody').appendChild(tr);
 }
