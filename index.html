@@ -86,6 +86,7 @@
 <div id="sessionBanner" style="display:none; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; background:var(--ng-bg); border:1px solid var(--ng); color:var(--ng); border-radius:8px; padding:12px 16px; margin-bottom:16px;">
   <span style="font-size:13px; font-weight:600;">⚠ セッションの有効期限が切れました。再度ログインしてください。</span>
   <button id="bannerReloginBtn" style="margin:0;">再ログイン</button>
+  <span id="bannerStatus" style="flex-basis:100%; margin:0; font-size:12px; display:none;"></span>
 </div>
 
 <div id="loginScreen" class="card">
@@ -396,9 +397,21 @@ function signOut(message) {
     localStorage.removeItem('msc_token_exp');
   } catch (e) {}
   masterRows = [];
+  // 前ユーザーの選択・チェック結果をクリア(同じブラウザで別ユーザーがログインしたとき持ち越さない)。
+  checkResults = [];
+  $('runClientSelect').value = '';
+  $('runSpecSummary').value = '';
+  $('folderList').value = '';
+  $('resultBody').innerHTML = '';
+  $('tableWrap').style.display = 'none';
+  $('csvBtn').disabled = true;
+  $('summary').textContent = '';
+  $('checkStatus').textContent = '';
   lastTabView = 'view-run';
   showView('view-run');
   $('sessionBanner').style.display = 'none';
+  $('bannerStatus').textContent = '';
+  $('bannerStatus').style.display = 'none';
   updateAuthVisibility();
   setStatus('loginStatus', message || 'ログアウトしました。', message ? 'error' : 'ok');
 }
@@ -413,6 +426,8 @@ function onToken(token, expiresInSec) {
   } catch (e) {}
   scheduleRefresh();
   $('sessionBanner').style.display = 'none';
+  $('bannerStatus').textContent = '';
+  $('bannerStatus').style.display = 'none';
   updateAuthVisibility();
 }
 function cachedToken() {
@@ -472,6 +487,13 @@ function initTokenClient() {
         if (silentInProgress) { silentInProgress = false; return; } // 無音更新の失敗は静かに無視(ボタンでの手動ログインに委ねる)
         setStatus('configStatus', 'ログインに失敗しました: ' + resp.error, 'error');
         setStatus('loginStatus', 'ログインに失敗しました: ' + resp.error, 'error');
+        // セッション切れバナーから再ログインした場合、configStatus/loginStatusは非表示なので
+        // バナー内にもエラーを出す(無反応に見えないように)。
+        if ($('sessionBanner').style.display !== 'none') {
+          const bs = $('bannerStatus');
+          bs.textContent = 'ログインに失敗しました: ' + resp.error + '（もう一度お試しください）';
+          bs.style.display = '';
+        }
         return;
       }
       silentInProgress = false;
@@ -573,6 +595,8 @@ function handleSessionExpired() {
     localStorage.removeItem('msc_token');
     localStorage.removeItem('msc_token_exp');
   } catch (e) {}
+  $('bannerStatus').textContent = '';       // 前回の失敗メッセージが残らないようにする
+  $('bannerStatus').style.display = 'none';
   $('sessionBanner').style.display = 'flex';
 }
 $('bannerReloginBtn').addEventListener('click', () => startSignIn('configStatus'));
@@ -623,7 +647,7 @@ $('accessRequestBtn').addEventListener('click', () => {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: 'payload=' + encodeURIComponent(JSON.stringify({ text: buildAccessRequestText(name, email, toolUrl) }))
   }).then(() => {
-    setStatus('accessRequestStatus', '申請を送信しました。担当者が追加するまで少しお待ちください。', 'ok');
+    setStatus('accessRequestStatus', '申請を送信しました。担当者が追加するまで少しお待ちください。もし1営業日ほど経っても連絡がない場合は、お手数ですが担当者へ直接ご連絡ください。', 'ok');
     $('accessRequestName').value = '';
     $('accessRequestEmail').value = '';
   }).catch(() => {
