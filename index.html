@@ -369,7 +369,9 @@ function maybeLogLogin() {
   } catch (e) {}
   logLoginEvent();
 }
-// 起動時: 有効なキャッシュがあれば即復元。無ければ無音サインインを試みる
+// 起動時: 有効なキャッシュがあれば即復元(ポップアップなし)。
+// 無い場合は手動ログイン(ボタン)に委ねる。※起動時の自動サイレントは手動ログインと
+// 競合し、かつテストモードでは不発のため行わない。更新はトークン保持中のタイマーで実施。
 function restoreSessionOnLoad() {
   const t = cachedToken();
   if (t) {
@@ -377,8 +379,6 @@ function restoreSessionOnLoad() {
     setStatus('configStatus', 'ログイン済みです(前回のセッションを復元)。', 'ok');
     scheduleRefresh();
     if (MASTER_SHEET_ID) loadMasterList();
-  } else {
-    silentSignIn();
   }
 }
 
