@@ -237,6 +237,17 @@
 </details>
 <div class="card">
   <h2>チェック実行</h2>
+
+  <div id="masterErrorBox" style="display:none; background:var(--ng-bg); border:1px solid var(--ng); border-radius:8px; padding:12px 14px; margin-bottom:14px;">
+    <div style="font-weight:700; color:var(--ng); font-size:13px;">⚠ 取引先マスタ(データベース)を読み込めませんでした</div>
+    <div id="masterErrorMsg" style="font-size:12.5px; color:var(--text); margin-top:6px;"></div>
+    <div style="margin-top:10px;">
+      <button id="masterErrorNotifyBtn" style="margin-top:0;">管理者に連絡する</button>
+      <button id="masterErrorRetryBtn" class="secondary" style="margin-top:0;">再読み込み</button>
+    </div>
+    <div class="status" id="masterErrorStatus"></div>
+  </div>
+
   <label>① 取引先を選択(下のサイズが自動で入力されます)</label>
   <select id="runClientSelect"><option value="">-- 取引先を選択してください --</option></select>
   <label style="margin-top:16px;">適用されるチェック条件 <span class="badge">取引先選択で自動表示</span></label>
@@ -290,6 +301,8 @@ let tokenClient = null;
 let masterRows = []; // {rowNumber, name, width, widthOp, height, heightOp, dpi, color, ext}
 let checkResults = [];
 let runSpec = null; // 選択中取引先の判定条件 {name, width, widthOp, height, heightOp, dpi, color, ext}
+let currentUserEmail = null; // ログイン中ユーザーのメール(userinfoから取得しキャッシュ)
+let masterLoadErrorCode = null; // 直近のマスタ読み込み失敗のHTTPコード(0=通信/例外, null=失敗なし)
 
 const $ = (id) => document.getElementById(id);
 
@@ -320,6 +333,11 @@ function extractId(input, kind) {
   }
   // fallback: assume it's already a bare ID (strip query strings)
   return input.split(/[?#]/)[0].split('/').pop();
+}
+
+// 現在のマスタスプレッドシートを開くURL(管理者への連絡文などに載せる)。
+function masterSheetUrl() {
+  return 'https://docs.google.com/spreadsheets/d/' + MASTER_SHEET_ID + '/edit';
 }
 
 // ---------- Config / Auth ----------
@@ -391,6 +409,7 @@ function maybeOpenUsageGuide() {
 // message を渡すと(セッション失効時など)ログイン画面にその旨を表示する。
 function signOut(message) {
   accessToken = null;
+  currentUserEmail = null;
   clearTimeout(refreshTimer);
   try {
     localStorage.removeItem('msc_token');
@@ -528,12 +547,23 @@ async function ensureLogSheetExists() {
   logSheetChecked = true;
 }
 
-async function logLoginEvent() {
+// ログイン中ユーザーのメールアドレスを取得してキャッシュする。
+// (取れなければ null。userinfo.email スコープはマスタ共有と無関係なので、
+//  マスタが403でもこちらは取得できる → エラー連絡に本人のメールを載せられる)
+async function fetchCurrentUserEmail() {
+  if (currentUserEmail) return currentUserEmail;
   try {
     const res = await authFetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: authHeaders() });
-    if (!res.ok) return;
+    if (!res.ok) return null;
     const info = await res.json();
-    const email = info.email || '(取得できませんでした)';
+    currentUserEmail = info.email || null;
+  } catch (e) { /* 取得失敗は致命ではない */ }
+  return currentUserEmail;
+}
+
+async function logLoginEvent() {
+  try {
+    const email = (await fetchCurrentUserEmail()) || '(取得できませんでした)';
     await ensureLogSheetExists();
     const now = new Date().toLocaleString('ja-JP');
     await authFetch(`https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/${encodeURIComponent(LOG_SHEET_NAME)}!A:B:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
@@ -590,6 +620,7 @@ async function authFetch(url, options) {
 // ログイン画面までは飛ばさず、その場から「再ログイン」できるようにする。
 function handleSessionExpired() {
   accessToken = null;
+  currentUserEmail = null;
   clearTimeout(refreshTimer);
   try {
     localStorage.removeItem('msc_token');
@@ -627,6 +658,27 @@ function buildAccessRequestText(name, email, toolUrl) {
     '```' + `\n${userGuide}\n` + '```';
 }
 
+// マスタ読み込み失敗時に管理者(前田)へ送るSlack本文(DOM非依存の純粋関数=単体テスト対象)。
+// 権限不足(403)と一時的エラーで、原因と依頼内容を出し分ける。
+function buildMasterErrorNotifyText(email, statusCode, toolUrl, sheetUrl) {
+  const who = email || '(メールアドレス取得できず)';
+  const isPermission = statusCode === 403;
+  const cause = isPermission
+    ? 'このアカウントに、取引先マスタ(スプレッドシート)の閲覧権限が無いと思われます(HTTP 403)。'
+    : (statusCode === 404
+        ? '取引先マスタ(スプレッドシート)が見つかりません(HTTP 404)。IDの設定をご確認ください。'
+        : ('取引先マスタの読み込みでエラーが発生しました(' + (statusCode ? 'HTTP ' + statusCode : '通信エラー') + ')。'));
+  const action = isPermission
+    ? `1. <${sheetUrl}|マスタスプレッドシートを開く>\n2. 「共有」に上記メールアドレスを *閲覧者* 以上で追加\n3. 追加できたら本人に「再読み込みを押してください」と連絡`
+    : `1. <${sheetUrl}|マスタスプレッドシートを開く> が正しく開けるか確認\n2. 一時的な不具合の可能性もあるため、本人に時間をおいて再試行するよう連絡`;
+  return `<@UASKEB16X> *⚠ 原稿サイズチェッカー マスタ読み込みエラー*\n\n` +
+    `*利用者:* ${who}\n` +
+    `*症状:* 取引先プルダウンが空(マスタを読み込めない)\n` +
+    `*原因:* ${cause}\n` +
+    `*ツールURL:* ${toolUrl}\n\n` +
+    `*対応手順*\n${action}`;
+}
+
 $('accessRequestBtn').addEventListener('click', () => {
   const name = $('accessRequestName').value.trim();
   const email = $('accessRequestEmail').value.trim();
@@ -660,12 +712,44 @@ $('accessRequestBtn').addEventListener('click', () => {
 const MASTER_RANGE = 'A:H';
 const MASTER_HEADER = ['取引先名', '幅px', '高さpx', 'DPI', 'カラーモード', '幅判定', '高さ判定', '拡張子'];
 
+// マスタ読み込み失敗を、チェック画面の分かりやすいボックスで案内する。
+// 403(権限なし)は「管理者に連絡」で対応依頼、その他は再読み込みを促す。
+function showMasterError(statusCode) {
+  masterLoadErrorCode = statusCode;
+  let msg;
+  if (statusCode === 403) {
+    msg = 'あなたのアカウントには、取引先マスタ(データベース)への閲覧権限がありません。' +
+          '下の「管理者に連絡する」を押すと、担当者にアクセス権の付与を依頼できます。追加されるまでお待ちください。';
+  } else if (statusCode === 404) {
+    msg = '取引先マスタ(データベース)が見つかりませんでした。設定が正しいか、担当者にご確認ください。' +
+          '「管理者に連絡する」から担当者へ連絡できます。';
+  } else if (statusCode === 0) {
+    msg = '通信エラーで取引先マスタを読み込めませんでした。ネットワーク環境をご確認のうえ、「再読み込み」をお試しください。';
+  } else {
+    msg = `取引先マスタを読み込めませんでした (HTTP ${statusCode})。「再読み込み」をお試しください。` +
+          '改善しない場合は「管理者に連絡する」から担当者へご連絡ください。';
+  }
+  $('masterErrorMsg').textContent = msg;
+  setStatus('masterErrorStatus', '', '');
+  $('masterErrorBox').style.display = '';
+  // どちらのプルダウンも「読み込めなかった」ことが分かる表示にしておく。
+  $('runClientSelect').innerHTML = '<option value="">-- 取引先マスタを読み込めませんでした --</option>';
+  $('clientSelect').innerHTML = '<option value="">-- 取引先マスタを読み込めませんでした --</option>';
+  setStatus('masterStatus', msg, 'error');
+}
+
+function hideMasterError() {
+  masterLoadErrorCode = null;
+  $('masterErrorBox').style.display = 'none';
+}
+
 async function loadMasterList() {
   try {
+    hideMasterError();
     setStatus('masterStatus', '読み込み中...', '');
     const url = `https://sheets.googleapis.com/v4/spreadsheets/${MASTER_SHEET_ID}/values/${MASTER_RANGE}`;
     const res = await authFetch(url, { headers: authHeaders() });
-    if (!res.ok) throw new Error('マスタ読み込みに失敗しました (HTTP ' + res.status + ')');
+    if (!res.ok) { showMasterError(res.status); return; }
     const data = await res.json();
     const values = data.values || [];
     masterRows = [];
@@ -695,7 +779,7 @@ async function loadMasterList() {
     });
 
     const runSel = $('runClientSelect');
-    runSel.innerHTML = '<option value="">-- 手動入力 --</option>';
+    runSel.innerHTML = '<option value="">-- 取引先を選択してください --</option>';
     masterRows.forEach((r, idx) => {
       const opt = document.createElement('option');
       opt.value = idx;
@@ -703,10 +787,17 @@ async function loadMasterList() {
       runSel.appendChild(opt);
     });
 
-    setStatus('masterStatus', `${masterRows.length}件の取引先を読み込みました。`, 'ok');
+    if (masterRows.length === 0) {
+      setStatus('masterStatus', '取引先がまだ1件も登録されていません。「取引先マスタ管理」タブから追加してください。', 'ok');
+    } else {
+      setStatus('masterStatus', `${masterRows.length}件の取引先を読み込みました。`, 'ok');
+    }
     renderMasterTable();
   } catch (e) {
-    setStatus('masterStatus', 'エラー: ' + e.message, 'error');
+    // 認証失効(401)は authFetch が上部バナーで案内済み。二重表示しない。
+    if (e && e.message && e.message.indexOf('認証の有効期限') !== -1) return;
+    // それ以外(通信断・CORS・JSON崩れ等)は通信エラー扱いで案内。
+    showMasterError(0);
   }
 }
 
@@ -799,6 +890,25 @@ $('masterTableBody').addEventListener('click', (e) => {
 });
 
 $('reloadMasterBtn').addEventListener('click', loadMasterList);
+$('masterErrorRetryBtn').addEventListener('click', loadMasterList);
+
+// マスタ読み込みエラー時: 担当者(前田)へSlackで対応依頼を送る。
+$('masterErrorNotifyBtn').addEventListener('click', async () => {
+  setStatus('masterErrorStatus', '送信中...', '');
+  const email = await fetchCurrentUserEmail();
+  const toolUrl = location.href.split(/[?#]/)[0];
+  const text = buildMasterErrorNotifyText(email, masterLoadErrorCode, toolUrl, masterSheetUrl());
+  fetch(SLACK_WEBHOOK_URL, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'payload=' + encodeURIComponent(JSON.stringify({ text }))
+  }).then(() => {
+    setStatus('masterErrorStatus', '管理者に連絡しました。対応されるまで少しお待ちください。対応後は「再読み込み」を押してください。', 'ok');
+  }).catch(() => {
+    setStatus('masterErrorStatus', '連絡の送信に失敗しました。時間をおいて再度お試しください。', 'error');
+  });
+});
 
 $('clientSelect').addEventListener('change', () => {
   const idx = $('clientSelect').value;

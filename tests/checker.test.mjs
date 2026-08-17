@@ -73,10 +73,11 @@ const pieces = [
   extractFn('parseTiffSpec'), extractFn('parseJpegSpec'), extractFn('parseImageSpec'),
   extractFn('toSpec'), extractFn('describeSpec'),
   extractFn('buildAccessRequestText'),
+  extractFn('buildMasterErrorNotifyText'),
 ];
 const exportNames = ['classifyColorMode','isGrayscaleMode','checkColorMode','fileExt','normExt',
   'isSupportedImage','checkExtension','checkDimension','judgeDpi','parseTiffSpec','parseJpegSpec','parseImageSpec',
-  'toSpec','describeSpec','buildAccessRequestText'];
+  'toSpec','describeSpec','buildAccessRequestText','buildMasterErrorNotifyText'];
 const C = new Function(pieces.join('\n\n') + '\nreturn {' + exportNames.join(',') + '};')();
 
 // --- ミニテストランナー ---
@@ -222,6 +223,31 @@ console.log('# buildAccessRequestText (Slack通知本文)');
   const payload = 'payload=' + encodeURIComponent(JSON.stringify({ text: t }));
   const parsed = JSON.parse(decodeURIComponent(payload.slice('payload='.length)));
   check('Slackペイロードが有効なJSONに往復する', parsed.text === t, true);
+}
+
+// ===== buildMasterErrorNotifyText (マスタ読み込みエラーのSlack通知本文) =====
+console.log('# buildMasterErrorNotifyText (マスタ読み込みエラー通知)');
+{
+  const sheet = 'https://docs.google.com/spreadsheets/d/ABC/edit';
+  const t403 = C.buildMasterErrorNotifyText('yamada@gmail.com', 403, 'https://example.com/app/', sheet);
+  check('403: 前田メンションを含む', t403.includes('<@UASKEB16X>'), true);
+  check('403: 利用者メールを含む', t403.includes('yamada@gmail.com'), true);
+  check('403: 権限文言を含む', t403.includes('閲覧権限が無い'), true);
+  check('403: 閲覧者追加の手順を含む', t403.includes('閲覧者'), true);
+  check('403: シートURLをリンクに含む', t403.includes(sheet), true);
+  check('403: ツールURLを含む', t403.includes('https://example.com/app/'), true);
+
+  const t404 = C.buildMasterErrorNotifyText('yamada@gmail.com', 404, 'https://example.com/app/', sheet);
+  check('404: 見つからない文言を含む', t404.includes('見つかりません'), true);
+
+  const t0 = C.buildMasterErrorNotifyText(null, 0, 'https://example.com/app/', sheet);
+  check('通信エラー: メール未取得の表記', t0.includes('取得できず'), true);
+  check('通信エラー: 通信エラー表記を含む', t0.includes('通信エラー'), true);
+
+  // Slack webhook ペイロードとして有効なJSONに載ること
+  const payload = 'payload=' + encodeURIComponent(JSON.stringify({ text: t403 }));
+  const parsed = JSON.parse(decodeURIComponent(payload.slice('payload='.length)));
+  check('Slackペイロードが有効なJSONに往復する', parsed.text === t403, true);
 }
 
 // ===== 結果 =====
