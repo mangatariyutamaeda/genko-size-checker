@@ -62,8 +62,18 @@ class TiffReader {            // ネットワーク層のみ差し替え。引�
   constructor(buf) { this.buf = buf; }
   async getBytes(offset, length) { return this.buf.subarray(offset, offset + length); }
 }`;
+// お知らせ機能の localStorage 依存を差し替える最小スタブ(既読idの読み書きを制御するため)。
+const shimNewsStore = `
+const __store = {};
+const localStorage = {
+  getItem: (k) => (k in __store ? __store[k] : null),
+  setItem: (k, v) => { __store[k] = String(v); },
+  removeItem: (k) => { delete __store[k]; },
+};
+function __setSeenNews(id) { if (id == null) delete __store['msc_seen_news']; else __store['msc_seen_news'] = String(id); }`;
 const pieces = [
   shimReader,
+  shimNewsStore,
   extractConst('TYPE_SIZE'),
   extractConst('EXT_ALIASES'),
   extractFn('readUint16'), extractFn('readUint32'),
@@ -75,11 +85,14 @@ const pieces = [
   extractFn('toSpec'), extractFn('describeSpec'),
   extractFn('buildAccessRequestText'),
   extractFn('buildMasterErrorNotifyText'),
+  extractConst('NEWS'),
+  extractFn('getSeenNewsId'), extractFn('hasUnreadNews'),
 ];
 const exportNames = ['classifyColorMode','isGrayscaleMode','checkColorMode','fileExt','normExt',
   'isSupportedImage','isPsdFile','checkExtension','checkDimension','judgeDpi','parseTiffSpec','parseJpegSpec','parseImageSpec',
   'extractPageNumber','analyzeFolderNumbering','comparePsdTif',
-  'toSpec','describeSpec','buildAccessRequestText','buildMasterErrorNotifyText'];
+  'toSpec','describeSpec','buildAccessRequestText','buildMasterErrorNotifyText',
+  'NEWS','getSeenNewsId','hasUnreadNews','__setSeenNews'];
 const C = new Function(pieces.join('\n\n') + '\nreturn {' + exportNames.join(',') + '};')();
 
 // --- ミニテストランナー ---
@@ -306,6 +319,24 @@ console.log('# comparePsdTif (psdと画像のページ突合)');
 {
   const extra = C.comparePsdTif([1,3], [1,2,3]);
   check('画像欠け: ページ2', extra.onlyPsd, [2]);
+}
+
+// ===== お知らせ(最新News)の未読判定 =====
+console.log('# お知らせ 未読判定 (hasUnreadNews / getSeenNewsId)');
+check('NEWSが1件以上ある', C.NEWS.length >= 1, true);
+check('各NEWSにid/date/title/bodyがある', C.NEWS.every(n => n.id && n.date && n.title && Array.isArray(n.body)), true);
+check('NEWSのidが一意', new Set(C.NEWS.map(n => n.id)).size, C.NEWS.length);
+{
+  C.__setSeenNews(null); // 既読なし
+  check('未読なし状態=未読あり(true)', C.hasUnreadNews(), true);
+  check('getSeenNewsId 初期は空', C.getSeenNewsId(), '');
+
+  C.__setSeenNews(C.NEWS[0].id); // 最新を既読に
+  check('最新を既読にすると未読なし(false)', C.hasUnreadNews(), false);
+  check('getSeenNewsId は保存したidを返す', C.getSeenNewsId(), C.NEWS[0].id);
+
+  C.__setSeenNews('古いID'); // 新しいお知らせが増えた相当
+  check('idがずれると再び未読あり(true)', C.hasUnreadNews(), true);
 }
 
 // ===== 結果 =====
