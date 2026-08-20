@@ -68,15 +68,17 @@ const pieces = [
   extractConst('EXT_ALIASES'),
   extractFn('readUint16'), extractFn('readUint32'),
   extractFn('classifyColorMode'), extractFn('isGrayscaleMode'), extractFn('checkColorMode'),
-  extractFn('fileExt'), extractFn('normExt'), extractFn('isSupportedImage'),
+  extractFn('fileExt'), extractFn('normExt'), extractFn('isSupportedImage'), extractFn('isPsdFile'),
   extractFn('checkExtension'), extractFn('checkDimension'), extractFn('judgeDpi'),
+  extractFn('extractPageNumber'), extractFn('analyzeFolderNumbering'), extractFn('comparePsdTif'),
   extractFn('parseTiffSpec'), extractFn('parseJpegSpec'), extractFn('parseImageSpec'),
   extractFn('toSpec'), extractFn('describeSpec'),
   extractFn('buildAccessRequestText'),
   extractFn('buildMasterErrorNotifyText'),
 ];
 const exportNames = ['classifyColorMode','isGrayscaleMode','checkColorMode','fileExt','normExt',
-  'isSupportedImage','checkExtension','checkDimension','judgeDpi','parseTiffSpec','parseJpegSpec','parseImageSpec',
+  'isSupportedImage','isPsdFile','checkExtension','checkDimension','judgeDpi','parseTiffSpec','parseJpegSpec','parseImageSpec',
+  'extractPageNumber','analyzeFolderNumbering','comparePsdTif',
   'toSpec','describeSpec','buildAccessRequestText','buildMasterErrorNotifyText'];
 const C = new Function(pieces.join('\n\n') + '\nreturn {' + exportNames.join(',') + '};')();
 
@@ -248,6 +250,62 @@ console.log('# buildMasterErrorNotifyText (マスタ読み込みエラー通知)
   const payload = 'payload=' + encodeURIComponent(JSON.stringify({ text: t403 }));
   const parsed = JSON.parse(decodeURIComponent(payload.slice('payload='.length)));
   check('Slackペイロードが有効なJSONに往復する', parsed.text === t403, true);
+}
+
+// ===== ファイルセット整合性チェック =====
+console.log('# isPsdFile');
+check('拡張子psd', C.isPsdFile('a.psd', ''), true);
+check('mimeでpsd', C.isPsdFile('a', 'image/vnd.adobe.photoshop'), true);
+check('tifはpsdでない', C.isPsdFile('a.tif', 'image/tiff'), false);
+
+console.log('# extractPageNumber (末尾の数字を柔軟に抽出)');
+check('sakuhin_001.tif=1', C.extractPageNumber('sakuhin_001.tif'), 1);
+check('012.psd=12', C.extractPageNumber('012.psd'), 12);
+check('末尾側優先', C.extractPageNumber('2024_p_003.tif'), 3);
+check('数字なし=null', C.extractPageNumber('cover.tif'), null);
+check('拡張子内の数字は無視(mp3等ないがtiff)', C.extractPageNumber('p5.tiff'), 5);
+check('数字のみ', C.extractPageNumber('7.jpg'), 7);
+
+console.log('# analyzeFolderNumbering (重複/連番抜け/最大番号ずれ)');
+{
+  const clean = C.analyzeFolderNumbering([{name:'p001.tif'},{name:'p002.tif'},{name:'p003.tif'}]);
+  check('正常: 重複なし', clean.duplicates, []);
+  check('正常: 欠番なし', clean.missing, []);
+  check('正常: 最大番号ずれなし', clean.countMismatch, null);
+  check('正常: 最大番号3', clean.maxNumber, 3);
+}
+{
+  const dup = C.analyzeFolderNumbering([{name:'p001.tif'},{name:'p001_old.tif'},{name:'p002.tif'}]);
+  check('重複: page1が2件', dup.duplicates, [{number:1, names:['p001.tif','p001_old.tif']}]);
+}
+{
+  const gap = C.analyzeFolderNumbering([{name:'p001.tif'},{name:'p002.tif'},{name:'p004.tif'}]);
+  check('欠番: 3が抜け', gap.missing, [3]);
+  check('欠番: 最大番号ずれも検出(3件/最大4)', gap.countMismatch, {max:4, count:3});
+}
+{
+  const start2 = C.analyzeFolderNumbering([{name:'p002.tif'},{name:'p003.tif'}]);
+  check('1始まりでない: 1が欠番', start2.missing, [1]);
+}
+{
+  const un = C.analyzeFolderNumbering([{name:'p001.tif'},{name:'cover.tif'}]);
+  check('番号なしを分離', un.unnumbered, ['cover.tif']);
+  check('番号なしは番号付き数に含めない', un.numberedCount, 1);
+}
+
+console.log('# comparePsdTif (psdと画像のページ突合)');
+{
+  const same = C.comparePsdTif([1,2,3], [1,2,3]);
+  check('一致: 差分なし', {oi:same.onlyImage, op:same.onlyPsd}, {oi:[], op:[]});
+}
+{
+  const miss = C.comparePsdTif([1,2,3], [1,3]);
+  check('psd欠け: ページ2', miss.onlyImage, [2]);
+  check('件数: 画像3/psd2', {i:miss.imageCount, p:miss.psdCount}, {i:3, p:2});
+}
+{
+  const extra = C.comparePsdTif([1,3], [1,2,3]);
+  check('画像欠け: ページ2', extra.onlyPsd, [2]);
 }
 
 // ===== 結果 =====

@@ -232,6 +232,7 @@
       <li><b>チェックしたいGoogle Driveのフォルダを貼り付ける</b> … Driveでフォルダを開いたときのURLをそのままコピーして貼り付けます。複数フォルダは改行で追加できます。中のサブフォルダもまとめて調べたいときは、下の「サブフォルダも含めてチェックする」にチェックを入れてください。</li>
       <li><b>「チェック開始」を押す</b> … 各画像の寸法(px)・DPI・カラーモード・拡張子を条件と照合し、OK / NG を一覧で表示します。結果は「CSVでダウンロード」で保存できます。</li>
     </ol>
+    <p style="margin:10px 0 0;">🔎 一覧の上に「<b>ファイルセット整合性チェック</b>」も表示します。ファイル名末尾の番号をもとに、<b>ページの重複</b>(古いファイルの消し忘れ)・<b>連番の欠番</b>・<b>ファイル数と最大番号のずれ</b>を検出します。psd フォルダも一緒に貼り付けると、<b>psd と画像でページが揃っているか</b>も突き合わせます(1案件ずつ実行してください)。</p>
     <p style="margin:10px 0 0;">💡 画像はあなたのブラウザ内だけで読み込まれ、どこかへアップロードされることはありません。取引先の条件を追加・変更したいときは、上の「取引先マスタ管理」タブから行えます。</p>
   </div>
 </details>
@@ -262,6 +263,7 @@
   <div class="progress-bar" id="progressBar" style="display:none;"><div class="progress-bar-inner" id="progressBarInner"></div></div>
   <div class="status" id="checkStatus"></div>
   <div class="summary" id="summary"></div>
+  <div id="setCheckBox" style="display:none; margin-top:12px;"></div>
   <div class="table-wrap" id="tableWrap" style="display:none;">
     <table id="resultTable">
       <thead>
@@ -1082,8 +1084,59 @@ function judgeDpi(expectedDpi, dpiX, dpiY) {
   return { status: 'ok', detail: '' };
 }
 
+// ---------- ファイルセット整合性チェック(重複/連番抜け/最大値ずれ/psd-tif不一致) ----------
+// ファイル名末尾の数字列をページ番号として抽出。数字を含まなければ null。
+// 例: 'sakuhin_001.tif'->1, '012.psd'->12, '2024_p3_v2.tif'->2(末尾側優先)
+function extractPageNumber(name) {
+  const base = String(name).replace(/\.[a-z0-9]+$/i, ''); // 拡張子除去
+  const m = base.match(/(\d+)(?!.*\d)/);                   // 末尾側の連続数字
+  return m ? parseInt(m[1], 10) : null;
+}
+
+// psd ファイル判定(拡張子 or Drive の mimeType)
+function isPsdFile(name, mimeType) {
+  if (mimeType === 'image/vnd.adobe.photoshop' || mimeType === 'application/x-photoshop') return true;
+  return fileExt(name) === 'psd';
+}
+
+// 1フォルダ内のファイル群のページ番号整合性を解析する。
+// files: [{name}]。戻り値に重複/連番抜け/最大番号ずれ/番号なしをまとめる。
+function analyzeFolderNumbering(files) {
+  const byNumber = new Map(); // number -> [name,...]
+  const unnumbered = [];
+  for (const f of files) {
+    const n = extractPageNumber(f.name);
+    if (n == null) { unnumbered.push(f.name); continue; }
+    if (!byNumber.has(n)) byNumber.set(n, []);
+    byNumber.get(n).push(f.name);
+  }
+  const numbers = [...byNumber.keys()].sort((a, b) => a - b);
+  const duplicates = numbers.filter(n => byNumber.get(n).length > 1)
+    .map(n => ({ number: n, names: byNumber.get(n).slice().sort() }));
+  const numberedCount = files.length - unnumbered.length;
+  const maxNumber = numbers.length ? numbers[numbers.length - 1] : 0;
+  const missing = [];
+  for (let i = 1; i < maxNumber; i++) if (!byNumber.has(i)) missing.push(i); // 1..max の欠番
+  // 最大番号ずれ: 番号付きファイル数 と 最大番号 が食い違う(重複や欠番、0始まり等で発生)
+  const countMismatch = (numbers.length && numberedCount !== maxNumber)
+    ? { max: maxNumber, count: numberedCount } : null;
+  return { total: files.length, numbers, duplicates, missing, maxNumber, numberedCount, countMismatch, unnumbered };
+}
+
+// psd と 画像(tif等)のページ番号セットを突き合わせる(数不一致/アップ漏れ検出)。
+// 案件を1つずつ実行する前提で、全入力フォルダを横断して集計する。
+// imageNums/psdNums はファイル1件につき1要素(番号なしは含めない)。
+function comparePsdTif(imageNums, psdNums) {
+  const imgSet = new Set(imageNums);
+  const psdSet = new Set(psdNums);
+  const onlyImage = [...imgSet].filter(n => !psdSet.has(n)).sort((a, b) => a - b); // 画像にあってpsdに無い
+  const onlyPsd = [...psdSet].filter(n => !imgSet.has(n)).sort((a, b) => a - b);   // psdにあって画像に無い
+  return { imageCount: imageNums.length, psdCount: psdNums.length, onlyImage, onlyPsd };
+}
+
 // ---------- Drive file listing ----------
-async function listFilesInFolder(folderId, folderLabel, recursive, out) {
+async function listFilesInFolder(folderId, folderLabel, recursive, out, rootKey) {
+  if (rootKey === undefined) rootKey = folderLabel; // 入力フォルダ単位の集計キー(最上位の入力フォルダ)
   let pageToken = '';
   do {
     const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
@@ -1096,12 +1149,15 @@ async function listFilesInFolder(folderId, folderLabel, recursive, out) {
     for (const f of (data.files || [])) {
       if (f.mimeType === 'application/vnd.google-apps.folder') {
         if (recursive) {
-          await listFilesInFolder(f.id, folderLabel + ' / ' + f.name, true, out);
+          await listFilesInFolder(f.id, folderLabel + ' / ' + f.name, true, out, rootKey);
         }
         continue;
       }
       if (isSupportedImage(f.name, f.mimeType)) {
-        out.push({ id: f.id, name: f.name, folder: folderLabel, webViewLink: f.webViewLink });
+        out.push({ id: f.id, name: f.name, folder: folderLabel, root: rootKey, kind: 'image', webViewLink: f.webViewLink });
+      } else if (isPsdFile(f.name, f.mimeType)) {
+        // psd は画像解析(寸法/DPI)の対象外。セット整合性チェック(数/連番/psd-tif突合)にのみ使う。
+        out.push({ id: f.id, name: f.name, folder: folderLabel, root: rootKey, kind: 'psd', webViewLink: f.webViewLink });
       }
     }
     pageToken = data.nextPageToken || '';
@@ -1353,26 +1409,30 @@ $('runCheckBtn').addEventListener('click', async () => {
     checkResults = [];
     $('resultBody').innerHTML = '';
     $('tableWrap').style.display = 'none';
+    $('setCheckBox').style.display = 'none';
+    $('setCheckBox').innerHTML = '';
     $('summary').textContent = '';
     setStatus('checkStatus', 'フォルダを走査中...', '');
 
     const allFiles = [];
     for (const line of folderLines) {
       const folderId = extractId(line, 'folder');
-      await listFilesInFolder(folderId, folderId, recursive, allFiles);
+      await listFilesInFolder(folderId, folderId, recursive, allFiles, folderId);
     }
 
     if (!allFiles.length) {
-      setStatus('checkStatus', '対象となる画像ファイル(tif/tiff/jpg)が見つかりませんでした。', 'error');
+      setStatus('checkStatus', '対象となる画像ファイル(tif/tiff/jpg/psd)が見つかりませんでした。', 'error');
       $('runCheckBtn').disabled = false;
       return;
     }
 
+    const imageFiles = allFiles.filter(f => f.kind === 'image'); // 寸法/DPI等の解析対象(psdは除外)
+
     $('progressBar').style.display = 'block';
-    setStatus('checkStatus', `0 / ${allFiles.length} 件処理中...`, '');
+    setStatus('checkStatus', `0 / ${imageFiles.length} 件処理中...`, '');
     const expectedText = describeSpec(s);
 
-    await runPool(allFiles, async (file) => {
+    await runPool(imageFiles, async (file) => {
       let spec = null;
       let reason = '';
       let ok = false;
@@ -1406,6 +1466,7 @@ $('runCheckBtn').addEventListener('click', async () => {
     const ngCount = checkResults.filter(r => !r.ok).length;
     setStatus('checkStatus', '完了しました。', 'ok');
     $('summary').textContent = `合計 ${checkResults.length} 件 / NG ${ngCount} 件 / OK ${checkResults.length - ngCount} 件`;
+    renderSetChecks(allFiles);
     $('tableWrap').style.display = 'block';
     $('csvBtn').disabled = false;
   } catch (e) {
@@ -1442,6 +1503,66 @@ function appendResultRow(row) {
 function escapeHtml(s) {
   if (s == null) return '';
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ファイルセット整合性チェックの結果を描画する(重複/連番抜け/最大番号ずれ/psd-画像突合)。
+// これらは1ファイル単位のNGとは別レイヤーの「要確認」警告として表示する。
+function renderSetChecks(allFiles) {
+  const box = $('setCheckBox');
+  const roots = [...new Set(allFiles.map(f => f.root))];
+  const warnings = []; // {title, items:[htmlString]}
+
+  // --- 入力フォルダ単位: 重複 / 連番抜け / 最大番号ずれ ---
+  for (const root of roots) {
+    const files = allFiles.filter(f => f.root === root);
+    for (const kind of ['image', 'psd']) { // 種別ごとに独立して番号整合性を見る
+      const group = files.filter(f => f.kind === kind);
+      if (!group.length) continue;
+      const a = analyzeFolderNumbering(group);
+      const kindLabel = kind === 'psd' ? 'psd' : '画像';
+      const items = [];
+      for (const d of a.duplicates) {
+        items.push(`ページ ${d.number} が重複(${d.names.map(escapeHtml).join(' / ')})→ 古いファイルを削除し、正しい1点のみ残してください`);
+      }
+      if (a.missing.length) items.push(`連番の欠番: ${a.missing.join(', ')}(アップ漏れの可能性)`);
+      if (a.countMismatch && !a.duplicates.length && !a.missing.length) {
+        items.push(`最大番号 ${a.countMismatch.max} に対しファイル数 ${a.countMismatch.count} 件(番号のずれ・アップ漏れの可能性)`);
+      }
+      if (a.unnumbered.length) items.push(`番号を読み取れないファイル: ${a.unnumbered.map(escapeHtml).join(' / ')}`);
+      if (items.length) warnings.push({ title: `フォルダ ${escapeHtml(root)} / ${kindLabel}(${group.length}件)`, items });
+    }
+  }
+
+  // --- 実行全体: psd と 画像 のページ突合(psdがある時のみ) ---
+  const psdFiles = allFiles.filter(f => f.kind === 'psd');
+  if (psdFiles.length) {
+    const imageNums = allFiles.filter(f => f.kind === 'image').map(f => extractPageNumber(f.name)).filter(n => n != null);
+    const psdNums = psdFiles.map(f => extractPageNumber(f.name)).filter(n => n != null);
+    const c = comparePsdTif(imageNums, psdNums);
+    const items = [];
+    if (c.imageCount !== c.psdCount) items.push(`画像 ${c.imageCount} 件 / psd ${c.psdCount} 件 でファイル数が不一致`);
+    if (c.onlyImage.length) items.push(`psd が無いページ: ${c.onlyImage.join(', ')}`);
+    if (c.onlyPsd.length) items.push(`画像が無いページ: ${c.onlyPsd.join(', ')}`);
+    if (items.length) {
+      items.push('※ 1案件ずつ実行する前提で、全入力フォルダを横断して集計しています');
+      warnings.push({ title: 'psd と 画像 の突合(実行全体)', items });
+    }
+  }
+
+  if (!warnings.length) {
+    box.innerHTML = `<div style="border:1px solid var(--ok); background:var(--ok-bg,#ecfdf5); color:var(--ok); border-radius:8px; padding:10px 14px; font-size:12.5px;">✅ ファイルセット整合性チェック: 問題は見つかりませんでした(重複・連番抜け・最大番号ずれ・psd/画像の突合)</div>`;
+  } else {
+    const sections = warnings.map(w => `
+      <div style="margin-top:8px;">
+        <div style="font-weight:700; font-size:12.5px;">${w.title}</div>
+        <ul style="margin:4px 0 0; padding-left:18px; font-size:12.5px; line-height:1.7;">${w.items.map(i => `<li>${i}</li>`).join('')}</ul>
+      </div>`).join('');
+    box.innerHTML = `<div style="border:1px solid var(--ng); background:var(--ng-bg); border-radius:8px; padding:12px 14px; color:var(--text);">
+      <div style="font-weight:700; color:var(--ng); font-size:13px;">⚠ ファイルセット整合性チェック: 要確認</div>
+      ${sections}
+    </div>`;
+  }
+  box.style.display = 'block';
 }
 
 $('csvBtn').addEventListener('click', () => {
