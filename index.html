@@ -63,6 +63,14 @@
   }
   .tab-btn:hover{background:#eef2ff; color:var(--accent);}
   .tab-btn.active{color:var(--accent); border-bottom:2px solid var(--accent); background:#fff;}
+  .news-badge{display:inline-block; margin-left:6px; font-size:9.5px; font-weight:700; letter-spacing:.3px;
+    color:#fff; background:var(--ng); border-radius:999px; padding:1px 6px; vertical-align:middle;}
+  .news-item{border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-bottom:10px; background:#fafbfc;}
+  .news-item .news-date{font-size:11px; color:var(--muted); font-weight:600;}
+  .news-item h3{margin:2px 0 8px; font-size:14px;}
+  .news-item p{margin:2px 0; font-size:12.5px; line-height:1.7;}
+  .news-item.is-new h3::after{content:'NEW'; margin-left:8px; font-size:9.5px; font-weight:700; color:#fff;
+    background:var(--ng); border-radius:999px; padding:1px 6px; vertical-align:middle;}
   .gear-btn{
     background:transparent; border:1px solid var(--border); color:var(--muted); width:34px; height:34px;
     border-radius:8px; padding:0; margin:0; font-size:16px; line-height:1; display:flex; align-items:center; justify-content:center;
@@ -113,6 +121,16 @@
 <div class="tabs">
   <button class="tab-btn active" id="tabBtnRun" data-view="view-run">チェック実行</button>
   <button class="tab-btn" id="tabBtnMaster" data-view="view-master">取引先マスタ管理</button>
+  <button class="tab-btn" id="tabBtnNews" data-view="view-news">📢 お知らせ<span id="newsBadge" class="news-badge" style="display:none;">NEW</span></button>
+</div>
+
+<div class="view" id="view-news">
+  <div class="card">
+    <h2>📢 お知らせ ・ 最新アップデート</h2>
+    <div class="sub" style="margin-bottom:8px;">ツールの追加機能・変更点はここでお知らせします。更新があると、ログイン後にこの画面が最初に開きます。</div>
+    <div id="newsList"></div>
+    <button id="newsProceedBtn" style="margin-top:14px;">確認しました・チェックへ進む →</button>
+  </div>
 </div>
 
 <div class="view" id="view-settings">
@@ -316,6 +334,54 @@ function showView(viewId) {
 let lastTabView = 'view-run';
 $('tabBtnRun').addEventListener('click', () => { lastTabView = 'view-run'; showView('view-run'); });
 $('tabBtnMaster').addEventListener('click', () => { lastTabView = 'view-master'; showView('view-master'); });
+$('tabBtnNews').addEventListener('click', () => { showNews(); });
+$('newsProceedBtn').addEventListener('click', () => { markNewsRead(); lastTabView = 'view-run'; showView('view-run'); });
+
+// ---------- お知らせ(最新アップデート) ----------
+// 新しいものを先頭に。id を変えると「NEW」バッジが再点灯し、次回ログイン時に自動表示される。
+const NEWS = [
+  {
+    id: '2026-08-21-set-checks',
+    date: '2026-08-21',
+    title: 'ファイルセット整合性チェックを追加しました',
+    body: [
+      'チェック結果の一覧の上に「ファイルセット整合性チェック」を表示するようになりました。ファイル名末尾の番号をもとに、次を自動で検出します。',
+      '● ページの重複(修正時の古いファイルの消し忘れ) → 正しい1点だけ残すよう案内します',
+      '● 連番の欠番(途中ページのアップ漏れの可能性)',
+      '● ファイル数と最大番号のずれ',
+      'psd のフォルダも一緒に貼り付けると、psd と画像でページが揃っているか(数・抜け)も突き合わせます。突合は1案件ずつ実行してください。',
+    ],
+  },
+];
+
+function renderNews() {
+  const seen = getSeenNewsId();
+  $('newsList').innerHTML = NEWS.map(n => `
+    <div class="news-item ${n.id !== seen ? 'is-new' : ''}">
+      <div class="news-date">${escapeHtml(n.date)}</div>
+      <h3>${escapeHtml(n.title)}</h3>
+      ${n.body.map(p => `<p>${escapeHtml(p)}</p>`).join('')}
+    </div>`).join('');
+}
+function getSeenNewsId() {
+  try { return localStorage.getItem('msc_seen_news') || ''; } catch (e) { return ''; }
+}
+function hasUnreadNews() {
+  return NEWS.length > 0 && NEWS[0].id !== getSeenNewsId();
+}
+function updateNewsBadge() {
+  $('newsBadge').style.display = hasUnreadNews() ? '' : 'none';
+}
+function markNewsRead() {
+  if (NEWS.length) { try { localStorage.setItem('msc_seen_news', NEWS[0].id); } catch (e) {} }
+  updateNewsBadge(); // タブの NEW バッジは消す(表示中の項目内 NEW タグはそのまま残す)
+}
+// お知らせ画面を開く。開いた時点で既読にする(タブのバッジも消える)。
+function showNews() {
+  renderNews();       // 既読状態を反映して描画(この時点では未読なら項目に NEW タグが付く)
+  showView('view-news');
+  markNewsRead();     // 既読を保存。表示中リストは再描画しないので NEW タグは残す
+}
 $('settingsToggleBtn').addEventListener('click', () => {
   const isSettingsOpen = $('view-settings').classList.contains('active');
   showView(isSettingsOpen ? lastTabView : 'view-settings');
@@ -387,7 +453,18 @@ function updateAuthVisibility() {
   $('loginScreen').style.display = authed ? 'none' : '';
   $('appMain').style.display = authed ? '' : 'none';
   $('settingsToggleBtn').style.display = authed ? '' : 'none';
-  if (authed) maybeOpenUsageGuide();
+  if (authed) { maybeShowNewsOnLogin(); maybeOpenUsageGuide(); }
+}
+
+// 未読のお知らせがあれば、ログイン後にこのページ読込中で一度だけ最初に表示する。
+// (トークンの無音更新でも updateAuthVisibility が呼ばれるため、メモリ内フラグで一度きりにする)
+let newsAutoShown = false;
+function maybeShowNewsOnLogin() {
+  renderNews();
+  updateNewsBadge();
+  if (newsAutoShown) return;
+  newsAutoShown = true;
+  if (hasUnreadNews()) showNews(); // 未読時のみ自動で前面に出す。既読なら通常のチェック画面のまま。
 }
 
 // 使い方ガイド: 初回に「アプリ画面が実際に見えたタイミング」で一度だけ自動で開く。
