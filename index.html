@@ -65,12 +65,26 @@
   .tab-btn.active{color:var(--accent); border-bottom:2px solid var(--accent); background:#fff;}
   .news-badge{display:inline-block; margin-left:6px; font-size:9.5px; font-weight:700; letter-spacing:.3px;
     color:#fff; background:var(--ng); border-radius:999px; padding:1px 6px; vertical-align:middle;}
-  .news-item{border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-bottom:10px; background:#fafbfc;}
-  .news-item .news-date{font-size:11px; color:var(--muted); font-weight:600;}
-  .news-item h3{margin:2px 0 8px; font-size:14px;}
-  .news-item p{margin:2px 0; font-size:12.5px; line-height:1.7;}
-  .news-item.is-new h3::after{content:'NEW'; margin-left:8px; font-size:9.5px; font-weight:700; color:#fff;
+  /* お知らせ一覧: タイトルの行(クリックで詳細モーダル) */
+  .news-row{display:flex; align-items:center; gap:10px; width:100%; text-align:left; margin:0 0 8px;
+    border:1px solid var(--border); border-radius:8px; padding:11px 14px; background:#fafbfc; cursor:pointer;
+    font-family:inherit; transition:background .12s, border-color .12s;}
+  .news-row:hover{background:#eef2ff; border-color:var(--accent);}
+  .news-row .news-row-date{font-size:11px; color:var(--muted); font-weight:600; flex:0 0 auto; min-width:78px;}
+  .news-row .news-row-title{font-size:13.5px; font-weight:600; color:var(--text); flex:1 1 auto;}
+  .news-row .news-row-arrow{color:var(--muted); flex:0 0 auto; font-size:13px;}
+  .news-row.is-new .news-row-title::after{content:'NEW'; margin-left:8px; font-size:9.5px; font-weight:700; color:#fff;
     background:var(--ng); border-radius:999px; padding:1px 6px; vertical-align:middle;}
+  /* お知らせ詳細モーダル */
+  .modal-overlay{position:fixed; inset:0; background:rgba(15,23,42,.45); display:flex; align-items:center;
+    justify-content:center; padding:24px; z-index:1000;}
+  .modal-card{position:relative; background:var(--card); border:1px solid var(--border); border-radius:12px;
+    padding:22px 24px; max-width:560px; width:100%; max-height:80vh; overflow:auto; box-shadow:0 12px 40px rgba(0,0,0,.18);}
+  .modal-card .news-date{font-size:11px; color:var(--muted); font-weight:600;}
+  .modal-card p{margin:2px 0; font-size:13px; line-height:1.8;}
+  .modal-close{position:absolute; top:10px; right:12px; background:transparent; border:none; color:var(--muted);
+    font-size:22px; line-height:1; width:32px; height:32px; padding:0; margin:0; cursor:pointer; border-radius:6px;}
+  .modal-close:hover{background:#eef2ff; color:var(--accent);}
   .gear-btn{
     background:transparent; border:1px solid var(--border); color:var(--muted); width:34px; height:34px;
     border-radius:8px; padding:0; margin:0; font-size:16px; line-height:1; display:flex; align-items:center; justify-content:center;
@@ -119,17 +133,27 @@
 
 <div id="appMain" style="display:none;">
 <div class="tabs">
-  <button class="tab-btn active" id="tabBtnRun" data-view="view-run">チェック実行</button>
+  <button class="tab-btn active" id="tabBtnNews" data-view="view-news">📢 お知らせ<span id="newsBadge" class="news-badge" style="display:none;">NEW</span></button>
+  <button class="tab-btn" id="tabBtnRun" data-view="view-run">チェック実行</button>
   <button class="tab-btn" id="tabBtnMaster" data-view="view-master">取引先マスタ管理</button>
-  <button class="tab-btn" id="tabBtnNews" data-view="view-news">📢 お知らせ<span id="newsBadge" class="news-badge" style="display:none;">NEW</span></button>
 </div>
 
-<div class="view" id="view-news">
+<div class="view active" id="view-news">
   <div class="card">
     <h2>📢 お知らせ ・ 最新アップデート</h2>
-    <div class="sub" style="margin-bottom:8px;">ツールの追加機能・変更点はここでお知らせします。更新があると、ログイン後にこの画面が最初に開きます。</div>
+    <div class="sub" style="margin-bottom:8px;">ツールの追加機能・変更点はここでお知らせします。ログイン後はまずこの画面が開きます。タイトルをクリックすると詳細が開きます。</div>
     <div id="newsList"></div>
-    <button id="newsProceedBtn" style="margin-top:14px;">確認しました・チェックへ進む →</button>
+    <button id="newsProceedBtn" style="margin-top:14px;">チェックへ進む →</button>
+  </div>
+</div>
+
+<!-- お知らせ詳細モーダル -->
+<div id="newsModal" class="modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="newsModalTitle">
+  <div class="modal-card">
+    <button type="button" id="newsModalClose" class="modal-close" aria-label="閉じる">×</button>
+    <div class="news-date" id="newsModalDate"></div>
+    <h3 id="newsModalTitle" style="margin:2px 0 12px; font-size:16px;"></h3>
+    <div id="newsModalBody"></div>
   </div>
 </div>
 
@@ -241,7 +265,7 @@
 </div>
 </div>
 
-<div class="view active" id="view-run">
+<div class="view" id="view-run">
 <details class="guide" id="usageGuide">
   <summary>📘 はじめての方へ ・ 使い方(3ステップ)</summary>
   <div class="content">
@@ -377,6 +401,17 @@ $('newsProceedBtn').addEventListener('click', () => { markNewsRead(); lastTabVie
 // 新しいものを先頭に。id を変えると「NEW」バッジが再点灯し、次回ログイン時に自動表示される。
 const NEWS = [
   {
+    id: '2026-08-26-export-and-news',
+    date: '2026-08-26',
+    title: '結果のPDF保存と、お知らせ画面の見直し',
+    body: [
+      'チェック結果を「PDFで保存(印刷)」できるボタンを追加しました。従来のCSVと合わせて、チーム内での共有・保管に使えます。CSV・PDFのどちらにも「ファイルセット整合性チェック」の内容が含まれます。',
+      'このお知らせ画面をタブの一番左に移動し、ログイン後に最初に開くようにしました。各お知らせはタイトルをクリックすると詳細が開きます。',
+      'psd と画像の突合で、複数の案件を一度に実行してページ番号がぶつかった場合は、結果を鵜呑みにしないよう警告を出すようにしました(突合は引き続き1案件ずつの実行を推奨)。',
+      '画像が0件(psdのみ)のときの集計表示を、実態に合う文言に修正しました。',
+    ],
+  },
+  {
     id: '2026-08-21-set-checks',
     date: '2026-08-21',
     title: 'ファイルセット整合性チェックを追加しました',
@@ -390,15 +425,39 @@ const NEWS = [
   },
 ];
 
+// お知らせは「タイトルの一覧」で表示し、クリックで詳細モーダルを開く。
 function renderNews() {
   const seen = getSeenNewsId();
+  if (!NEWS.length) {
+    $('newsList').innerHTML = `<div class="sub" style="margin:0;">現在お知らせはありません。</div>`;
+    return;
+  }
   $('newsList').innerHTML = NEWS.map(n => `
-    <div class="news-item ${n.id !== seen ? 'is-new' : ''}">
-      <div class="news-date">${escapeHtml(n.date)}</div>
-      <h3>${escapeHtml(n.title)}</h3>
-      ${n.body.map(p => `<p>${escapeHtml(p)}</p>`).join('')}
-    </div>`).join('');
+    <button type="button" class="news-row ${n.id !== seen ? 'is-new' : ''}" data-news-id="${escapeHtml(n.id)}">
+      <span class="news-row-date">${escapeHtml(n.date)}</span>
+      <span class="news-row-title">${escapeHtml(n.title)}</span>
+      <span class="news-row-arrow">詳細 ›</span>
+    </button>`).join('');
 }
+
+// お知らせ詳細モーダルの開閉。
+function openNewsModal(id) {
+  const n = NEWS.find(x => x.id === id);
+  if (!n) return;
+  $('newsModalDate').textContent = n.date;
+  $('newsModalTitle').textContent = n.title;
+  $('newsModalBody').innerHTML = n.body.map(p => `<p>${escapeHtml(p)}</p>`).join('');
+  $('newsModal').style.display = 'flex';
+}
+function closeNewsModal() { $('newsModal').style.display = 'none'; }
+
+$('newsList').addEventListener('click', (e) => {
+  const row = e.target.closest('[data-news-id]');
+  if (row) openNewsModal(row.dataset.newsId);
+});
+$('newsModalClose').addEventListener('click', closeNewsModal);
+$('newsModal').addEventListener('click', (e) => { if (e.target === $('newsModal')) closeNewsModal(); }); // 背景クリックで閉じる
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('newsModal').style.display !== 'none') closeNewsModal(); });
 function getSeenNewsId() {
   try { return localStorage.getItem('msc_seen_news') || ''; } catch (e) { return ''; }
 }
@@ -492,7 +551,7 @@ function updateAuthVisibility() {
   if (authed) { maybeShowNewsOnLogin(); maybeOpenUsageGuide(); }
 }
 
-// 未読のお知らせがあれば、ログイン後にこのページ読込中で一度だけ最初に表示する。
+// ログイン後は毎回まず「お知らせ」画面を最初に表示する(起動画面)。
 // (トークンの無音更新でも updateAuthVisibility が呼ばれるため、メモリ内フラグで一度きりにする)
 let newsAutoShown = false;
 function maybeShowNewsOnLogin() {
@@ -500,7 +559,7 @@ function maybeShowNewsOnLogin() {
   updateNewsBadge();
   if (newsAutoShown) return;
   newsAutoShown = true;
-  if (hasUnreadNews()) showNews(); // 未読時のみ自動で前面に出す。既読なら通常のチェック画面のまま。
+  showNews(); // 既読/未読にかかわらず、起動時はお知らせを前面に。
 }
 
 // 使い方ガイド: 初回に「アプリ画面が実際に見えたタイミング」で一度だけ自動で開く。
@@ -544,6 +603,7 @@ function signOut(message) {
   $('summary').textContent = '';
   $('checkStatus').textContent = '';
   lastTabView = 'view-run';
+  newsAutoShown = false; // 次回ログイン時にまたお知らせを起動画面として出す
   showView('view-run');
   $('sessionBanner').style.display = 'none';
   $('bannerStatus').textContent = '';
