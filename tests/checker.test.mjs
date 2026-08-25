@@ -81,6 +81,7 @@ const pieces = [
   extractFn('fileExt'), extractFn('normExt'), extractFn('isSupportedImage'), extractFn('isPsdFile'),
   extractFn('checkExtension'), extractFn('checkDimension'), extractFn('judgeDpi'),
   extractFn('extractPageNumber'), extractFn('analyzeFolderNumbering'), extractFn('comparePsdTif'),
+  extractFn('detectCrossRootCollisions'), extractFn('computeSetChecks'),
   extractFn('parseTiffSpec'), extractFn('parseJpegSpec'), extractFn('parseImageSpec'),
   extractFn('toSpec'), extractFn('describeSpec'),
   extractFn('buildAccessRequestText'),
@@ -91,6 +92,7 @@ const pieces = [
 const exportNames = ['classifyColorMode','isGrayscaleMode','checkColorMode','fileExt','normExt',
   'isSupportedImage','isPsdFile','checkExtension','checkDimension','judgeDpi','parseTiffSpec','parseJpegSpec','parseImageSpec',
   'extractPageNumber','analyzeFolderNumbering','comparePsdTif',
+  'detectCrossRootCollisions','computeSetChecks',
   'toSpec','describeSpec','buildAccessRequestText','buildMasterErrorNotifyText',
   'NEWS','getSeenNewsId','hasUnreadNews','__setSeenNews'];
 const C = new Function(pieces.join('\n\n') + '\nreturn {' + exportNames.join(',') + '};')();
@@ -319,6 +321,76 @@ console.log('# comparePsdTif (psdと画像のページ突合)');
 {
   const extra = C.comparePsdTif([1,3], [1,2,3]);
   check('画像欠け: ページ2', extra.onlyPsd, [2]);
+}
+
+console.log('# detectCrossRootCollisions (複数入力フォルダの番号衝突=別案件混在)');
+{
+  // 単一rootのみ: 衝突なし
+  const none = C.detectCrossRootCollisions([
+    {name:'p001.tif', kind:'image', root:'A'},
+    {name:'p002.tif', kind:'image', root:'A'},
+  ]);
+  check('単一rootは衝突なし', none, []);
+}
+{
+  // 別rootに同じ画像ページ番号 → 衝突
+  const col = C.detectCrossRootCollisions([
+    {name:'p001.tif', kind:'image', root:'A'},
+    {name:'p001.tif', kind:'image', root:'B'},
+  ]);
+  check('画像ページ1が2つのrootに', col, [{kind:'image', number:1, roots:['A','B']}]);
+}
+{
+  // 種別が違えば衝突扱いしない(画像1とpsd1は別レイヤー)
+  const mixed = C.detectCrossRootCollisions([
+    {name:'p001.tif', kind:'image', root:'A'},
+    {name:'p001.psd', kind:'psd', root:'B'},
+  ]);
+  check('種別違いは衝突ではない', mixed, []);
+}
+
+console.log('# computeSetChecks (表示/CSV/PDF共用の警告組み立て)');
+{
+  // クリーン: 画像だけ・連番OK・psdなし → 警告なし
+  const clean = C.computeSetChecks([
+    {name:'p001.tif', kind:'image', root:'A'},
+    {name:'p002.tif', kind:'image', root:'A'},
+  ]);
+  check('問題なしはok=true', {ok:clean.ok, n:clean.warnings.length}, {ok:true, n:0});
+}
+{
+  // 重複あり → 要確認
+  const dup = C.computeSetChecks([
+    {name:'p001.tif', kind:'image', root:'A'},
+    {name:'p001_old.tif', kind:'image', root:'A'},
+    {name:'p002.tif', kind:'image', root:'A'},
+  ]);
+  check('重複でok=false', dup.ok, false);
+  check('重複警告の本文に「重複」', dup.warnings.some(w => w.items.some(i => i.includes('重複'))), true);
+}
+{
+  // psdあり・単一案件・突合OK → psd突合セクションは出ない(全てOK)
+  const okPsd = C.computeSetChecks([
+    {name:'p001.tif', kind:'image', root:'img'},
+    {name:'p002.tif', kind:'image', root:'img'},
+    {name:'p001.psd', kind:'psd', root:'psd'},
+    {name:'p002.psd', kind:'psd', root:'psd'},
+  ]);
+  check('単一案件・突合一致はok=true', okPsd.ok, true);
+}
+{
+  // 複数案件混在(画像ページ1が2つのrootに) + psdあり → 衝突警告を出し、突合結果は当てにしない
+  const collide = C.computeSetChecks([
+    {name:'p001.tif', kind:'image', root:'案件A/img'},
+    {name:'p001.tif', kind:'image', root:'案件B/img'},
+    {name:'p001.psd', kind:'psd', root:'案件A/psd'},
+  ]);
+  const psdSection = collide.warnings.find(w => w.title.includes('突合'));
+  check('突合セクションが存在', !!psdSection, true);
+  check('衝突を警告(「別案件が混在」)', psdSection.items.some(i => i.includes('別案件が混在')), true);
+  check('突合は当てにならない旨を明記', psdSection.items.some(i => i.includes('1案件ずつ')), true);
+  // 衝突時は onlyImage/onlyPsd の断定的な差分行は出さない
+  check('衝突時は「psd が無いページ」を出さない', psdSection.items.some(i => i.startsWith('psd が無いページ')), false);
 }
 
 // ===== お知らせ(最新News)の未読判定 =====

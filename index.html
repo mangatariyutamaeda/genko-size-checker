@@ -248,7 +248,7 @@
     <ol>
       <li><b>取引先を選ぶ</b> … 下の「① 取引先を選択」で選ぶと、その取引先の判定条件(サイズ・DPI・カラーモード・拡張子)が自動で入ります。</li>
       <li><b>チェックしたいGoogle Driveのフォルダを貼り付ける</b> … Driveでフォルダを開いたときのURLをそのままコピーして貼り付けます。複数フォルダは改行で追加できます。中のサブフォルダもまとめて調べたいときは、下の「サブフォルダも含めてチェックする」にチェックを入れてください。</li>
-      <li><b>「チェック開始」を押す</b> … 各画像の寸法(px)・DPI・カラーモード・拡張子を条件と照合し、OK / NG を一覧で表示します。結果は「CSVでダウンロード」で保存できます。</li>
+      <li><b>「チェック開始」を押す</b> … 各画像の寸法(px)・DPI・カラーモード・拡張子を条件と照合し、OK / NG を一覧で表示します。結果は「CSVでダウンロード」または「PDFで保存(印刷)」で保存でき、どちらもファイルセット整合性チェックの内容を含みます。</li>
     </ol>
     <p style="margin:10px 0 0;">🔎 一覧の上に「<b>ファイルセット整合性チェック</b>」も表示します。ファイル名末尾の番号をもとに、<b>ページの重複</b>(古いファイルの消し忘れ)・<b>連番の欠番</b>・<b>ファイル数と最大番号のずれ</b>を検出します。psd フォルダも一緒に貼り付けると、<b>psd と画像でページが揃っているか</b>も突き合わせます(1案件ずつ実行してください)。</p>
     <p style="margin:10px 0 0;">💡 画像はあなたのブラウザ内だけで読み込まれ、どこかへアップロードされることはありません。取引先の条件を追加・変更したいときは、上の「取引先マスタ管理」タブから行えます。</p>
@@ -278,6 +278,7 @@
   </label>
   <button id="runCheckBtn">③ チェック開始</button>
   <button id="csvBtn" class="secondary" disabled>結果をCSVでダウンロード</button>
+  <button id="pdfBtn" class="secondary" disabled>結果をPDFで保存(印刷)</button>
   <div class="progress-bar" id="progressBar" style="display:none;"><div class="progress-bar-inner" id="progressBarInner"></div></div>
   <div class="status" id="checkStatus"></div>
   <div class="summary" id="summary"></div>
@@ -314,12 +315,47 @@ const DEFAULT_MASTER_SHEET_ID = '1QnYqQA7NpSkhuC5dUL8klBaeTQc2EjYDcACROG3OBRU';
 const SLACK_WEBHOOK_URL_B64 = 'aHR0cHM6Ly9ob29rcy5zbGFjay5jb20vc2VydmljZXMvVEFUSzVVWUNXL0IwQksyUjlCVDdTL3ZBMkdkY0k4ZzB1N3c1SUZsZWt5M1R2cQ==';
 const SLACK_WEBHOOK_URL = atob(SLACK_WEBHOOK_URL_B64);
 
+// 任意: CORS対応の中継プロキシURL。設定されている時だけ本当の到達成否を読める。
+// 未設定なら従来どおり Slack Webhook へ no-cors で直POST する(=ブラウザでは到達を確認できない)。
+// 有効化するには localStorage の 'msc_slack_proxy_url' に、{text} をJSONで受けてSlackへ転送する
+// CORS対応エンドポイント(GAS/Cloudflare Worker等)のURLを入れる。
+let SLACK_PROXY_URL = localStorage.getItem('msc_slack_proxy_url') || '';
+
+// Slack通知を送る。戻り値 status: 'ok'(到達確認) / 'failed'(失敗確認) / 'unknown'(no-cors直送・確認不可)。
+async function postSlackNotification(text) {
+  const payload = JSON.stringify({ text });
+  if (SLACK_PROXY_URL) {
+    try {
+      const res = await fetch(SLACK_PROXY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload
+      });
+      return res.ok ? 'ok' : 'failed';
+    } catch (e) {
+      return 'failed';
+    }
+  }
+  // プロキシ未設定: Slack Webhook はCORS非対応のため no-cors。opaqueレスポンスで成否は読めない。
+  try {
+    await fetch(SLACK_WEBHOOK_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'payload=' + encodeURIComponent(payload)
+    });
+  } catch (e) { /* no-cors では通常throwしないが保険 */ }
+  return 'unknown';
+}
+
 let CLIENT_ID = localStorage.getItem('msc_client_id') || DEFAULT_CLIENT_ID;
 let MASTER_SHEET_ID = localStorage.getItem('msc_master_sheet_id') || DEFAULT_MASTER_SHEET_ID;
 let accessToken = null;
 let tokenClient = null;
 let masterRows = []; // {rowNumber, name, width, widthOp, height, heightOp, dpi, color, ext}
 let checkResults = [];
+let lastAllFiles = []; // 直近のチェックで走査した全ファイル(CSV/PDF出力・セット整合性チェックで再利用)
+let lastRunExpected = ''; // 直近チェックの期待値説明(出力の見出し用)
 let runSpec = null; // 選択中取引先の判定条件 {name, width, widthOp, height, heightOp, dpi, color, ext}
 let currentUserEmail = null; // ログイン中ユーザーのメール(userinfoから取得しキャッシュ)
 let masterLoadErrorCode = null; // 直近のマスタ読み込み失敗のHTTPコード(0=通信/例外, null=失敗なし)
@@ -497,12 +533,14 @@ function signOut(message) {
   masterRows = [];
   // 前ユーザーの選択・チェック結果をクリア(同じブラウザで別ユーザーがログインしたとき持ち越さない)。
   checkResults = [];
+  lastAllFiles = [];
   $('runClientSelect').value = '';
   $('runSpecSummary').value = '';
   $('folderList').value = '';
   $('resultBody').innerHTML = '';
   $('tableWrap').style.display = 'none';
   $('csvBtn').disabled = true;
+  $('pdfBtn').disabled = true;
   $('summary').textContent = '';
   $('checkStatus').textContent = '';
   lastTabView = 'view-run';
@@ -724,7 +762,7 @@ function buildAccessRequestText(name, email, toolUrl) {
     `▼ かんたんな使い方(3ステップ)\n` +
     `1. 「取引先を選択」で対象の取引先を選ぶ(サイズ等の判定条件が自動で入ります)\n` +
     `2. チェックしたいGoogle DriveのフォルダURLを貼り付ける(複数可・改行で追加、サブフォルダも対象にできます)\n` +
-    `3. 「チェック開始」を押すと、各画像がOK / NG で一覧表示されます(結果はCSVで保存可)\n\n` +
+    `3. 「チェック開始」を押すと、各画像がOK / NG で一覧表示されます(結果はCSV/PDFで保存可)\n\n` +
     `画像はブラウザ内だけで読み込まれ、どこかへアップロードされることはありません。ご不明点があればお気軽にご連絡ください。`;
   return `<@UASKEB16X> *🔔 原稿サイズチェッカー アクセス申請*\n\n` +
     `*お名前:* ${name}\n` +
@@ -758,7 +796,7 @@ function buildMasterErrorNotifyText(email, statusCode, toolUrl, sheetUrl) {
     `*対応手順*\n${action}`;
 }
 
-$('accessRequestBtn').addEventListener('click', () => {
+$('accessRequestBtn').addEventListener('click', async () => {
   const name = $('accessRequestName').value.trim();
   const email = $('accessRequestEmail').value.trim();
   if (!name) {
@@ -772,18 +810,19 @@ $('accessRequestBtn').addEventListener('click', () => {
   setStatus('accessRequestStatus', '送信中...', '');
   // このツール自身のURL(クエリ等は除去)。本人への案内文にそのまま載せる。
   const toolUrl = location.href.split(/[?#]/)[0];
-  fetch(SLACK_WEBHOOK_URL, {
-    method: 'POST',
-    mode: 'no-cors',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'payload=' + encodeURIComponent(JSON.stringify({ text: buildAccessRequestText(name, email, toolUrl) }))
-  }).then(() => {
-    setStatus('accessRequestStatus', '申請を送信しました。担当者が追加するまで少しお待ちください。もし1営業日ほど経っても連絡がない場合は、お手数ですが担当者へ直接ご連絡ください。', 'ok');
-    $('accessRequestName').value = '';
-    $('accessRequestEmail').value = '';
-  }).catch(() => {
-    setStatus('accessRequestStatus', '送信に失敗しました。時間をおいて再度お試しください。', 'error');
-  });
+  const status = await postSlackNotification(buildAccessRequestText(name, email, toolUrl));
+  if (status === 'failed') {
+    setStatus('accessRequestStatus', '申請の送信に失敗しました。時間をおいて再度お試しいただくか、担当者へ直接ご連絡ください。', 'error');
+    return;
+  }
+  $('accessRequestName').value = '';
+  $('accessRequestEmail').value = '';
+  if (status === 'ok') {
+    setStatus('accessRequestStatus', '申請を送信し、担当者への通知の到達を確認しました。追加されるまで少しお待ちください。', 'ok');
+  } else {
+    // no-cors 直送: 送信は試みたが到達までは確認できない。正直に案内する。
+    setStatus('accessRequestStatus', '申請を送信しました(ブラウザからは到達までは確認できません)。担当者が追加するまでお待ちください。1営業日ほど経っても連絡がない場合は、お手数ですが担当者へ直接ご連絡ください。', 'ok');
+  }
 });
 
 // ---------- Master (Google Sheets) ----------
@@ -977,16 +1016,15 @@ $('masterErrorNotifyBtn').addEventListener('click', async () => {
   const email = await fetchCurrentUserEmail();
   const toolUrl = location.href.split(/[?#]/)[0];
   const text = buildMasterErrorNotifyText(email, masterLoadErrorCode, toolUrl, masterSheetUrl());
-  fetch(SLACK_WEBHOOK_URL, {
-    method: 'POST',
-    mode: 'no-cors',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'payload=' + encodeURIComponent(JSON.stringify({ text }))
-  }).then(() => {
-    setStatus('masterErrorStatus', '管理者に連絡しました。対応されるまで少しお待ちください。対応後は「再読み込み」を押してください。', 'ok');
-  }).catch(() => {
+  const status = await postSlackNotification(text);
+  if (status === 'ok') {
+    setStatus('masterErrorStatus', '管理者に連絡し、通知の到達を確認しました。対応後は「再読み込み」を押してください。', 'ok');
+  } else if (status === 'failed') {
     setStatus('masterErrorStatus', '連絡の送信に失敗しました。時間をおいて再度お試しください。', 'error');
-  });
+  } else {
+    // no-cors 直送: 到達までは確認できないため正直に案内する。
+    setStatus('masterErrorStatus', '管理者へ連絡を送信しました(ブラウザからは到達までは確認できません)。しばらく対応がない場合は担当者へ直接ご連絡ください。対応後は「再読み込み」を押してください。', 'ok');
+  }
 });
 
 $('clientSelect').addEventListener('change', () => {
@@ -1209,6 +1247,81 @@ function comparePsdTif(imageNums, psdNums) {
   const onlyImage = [...imgSet].filter(n => !psdSet.has(n)).sort((a, b) => a - b); // 画像にあってpsdに無い
   const onlyPsd = [...psdSet].filter(n => !imgSet.has(n)).sort((a, b) => a - b);   // psdにあって画像に無い
   return { imageCount: imageNums.length, psdCount: psdNums.length, onlyImage, onlyPsd };
+}
+
+// 複数の入力フォルダ(root)にまたがって同じページ番号が存在するかを調べる。
+// 存在する場合は別案件が混在している可能性が高く、実行全体を横断するpsd↔画像の突合結果は当てにならない。
+// 種別(画像/psd)ごとに独立して判定する。戻り値: [{kind, number, roots:[...]}]。
+function detectCrossRootCollisions(allFiles) {
+  const collisions = [];
+  for (const kind of ['image', 'psd']) {
+    const byNumber = new Map(); // number -> Set(root)
+    for (const f of allFiles) {
+      if (f.kind !== kind) continue;
+      const n = extractPageNumber(f.name);
+      if (n == null) continue;
+      if (!byNumber.has(n)) byNumber.set(n, new Set());
+      byNumber.get(n).add(f.root);
+    }
+    for (const [n, roots] of byNumber) {
+      if (roots.size > 1) collisions.push({ kind, number: n, roots: [...roots].sort() });
+    }
+  }
+  collisions.sort((a, b) => a.kind === b.kind ? a.number - b.number : (a.kind < b.kind ? -1 : 1));
+  return collisions;
+}
+
+// ファイルセット整合性チェックの結果を「プレーンテキスト」で組み立てる(表示・CSV・PDFで共用)。
+// 戻り値: { ok:boolean, warnings:[{title, items:[string]}] }。HTMLエスケープは描画側の責務。
+function computeSetChecks(allFiles) {
+  const roots = [...new Set(allFiles.map(f => f.root))];
+  const warnings = [];
+
+  // --- 入力フォルダ単位: 重複 / 連番抜け / 最大番号ずれ / 番号なし ---
+  for (const root of roots) {
+    const files = allFiles.filter(f => f.root === root);
+    for (const kind of ['image', 'psd']) { // 種別ごとに独立して番号整合性を見る
+      const group = files.filter(f => f.kind === kind);
+      if (!group.length) continue;
+      const a = analyzeFolderNumbering(group);
+      const kindLabel = kind === 'psd' ? 'psd' : '画像';
+      const items = [];
+      for (const d of a.duplicates) {
+        items.push(`ページ ${d.number} が重複(${d.names.join(' / ')})→ 古いファイルを削除し、正しい1点のみ残してください`);
+      }
+      if (a.missing.length) items.push(`連番の欠番: ${a.missing.join(', ')}(アップ漏れの可能性)`);
+      if (a.countMismatch && !a.duplicates.length && !a.missing.length) {
+        items.push(`最大番号 ${a.countMismatch.max} に対しファイル数 ${a.countMismatch.count} 件(番号のずれ・アップ漏れの可能性)`);
+      }
+      if (a.unnumbered.length) items.push(`番号を読み取れないファイル: ${a.unnumbered.join(' / ')}`);
+      if (items.length) warnings.push({ title: `フォルダ ${root} / ${kindLabel}(${group.length}件)`, items });
+    }
+  }
+
+  // --- 実行全体: psd と 画像 のページ突合(psdがある時のみ) ---
+  const psdFiles = allFiles.filter(f => f.kind === 'psd');
+  if (psdFiles.length) {
+    const collisions = detectCrossRootCollisions(allFiles); // 複数案件が混在していないか
+    const items = [];
+    if (collisions.length) {
+      // 番号衝突あり = 複数案件が混在している可能性大。突合結果は信頼できないので突合は出さず、警告のみ。
+      const sample = collisions.slice(0, 5)
+        .map(x => `${x.kind === 'psd' ? 'psd' : '画像'}ページ${x.number}`).join(', ');
+      items.push(`複数の入力フォルダで同じページ番号が見つかりました(${sample}${collisions.length > 5 ? ' ほか' : ''})。別案件が混在している可能性があります`);
+      items.push('psd↔画像の突合はページ番号が衝突するため、この結果は当てになりません。正確に確認するには1案件ずつ実行してください');
+    } else {
+      const imageNums = allFiles.filter(f => f.kind === 'image').map(f => extractPageNumber(f.name)).filter(n => n != null);
+      const psdNums = psdFiles.map(f => extractPageNumber(f.name)).filter(n => n != null);
+      const c = comparePsdTif(imageNums, psdNums);
+      if (c.imageCount !== c.psdCount) items.push(`画像 ${c.imageCount} 件 / psd ${c.psdCount} 件 でファイル数が不一致`);
+      if (c.onlyImage.length) items.push(`psd が無いページ: ${c.onlyImage.join(', ')}`);
+      if (c.onlyPsd.length) items.push(`画像が無いページ: ${c.onlyPsd.join(', ')}`);
+      if (items.length) items.push('※ 1案件ずつ実行する前提で、全入力フォルダを横断して集計しています');
+    }
+    if (items.length) warnings.push({ title: 'psd と 画像 の突合(実行全体)', items });
+  }
+
+  return { ok: warnings.length === 0, warnings };
 }
 
 // ---------- Drive file listing ----------
@@ -1483,7 +1596,9 @@ $('runCheckBtn').addEventListener('click', async () => {
 
     $('runCheckBtn').disabled = true;
     $('csvBtn').disabled = true;
+    $('pdfBtn').disabled = true;
     checkResults = [];
+    lastAllFiles = [];
     $('resultBody').innerHTML = '';
     $('tableWrap').style.display = 'none';
     $('setCheckBox').style.display = 'none';
@@ -1505,9 +1620,11 @@ $('runCheckBtn').addEventListener('click', async () => {
 
     const imageFiles = allFiles.filter(f => f.kind === 'image'); // 寸法/DPI等の解析対象(psdは除外)
 
+    lastAllFiles = allFiles; // CSV/PDF出力で再利用(セット整合性チェックを含む)
     $('progressBar').style.display = 'block';
     setStatus('checkStatus', `0 / ${imageFiles.length} 件処理中...`, '');
     const expectedText = describeSpec(s);
+    lastRunExpected = expectedText;
 
     await runPool(imageFiles, async (file) => {
       let spec = null;
@@ -1542,10 +1659,17 @@ $('runCheckBtn').addEventListener('click', async () => {
 
     const ngCount = checkResults.filter(r => !r.ok).length;
     setStatus('checkStatus', '完了しました。', 'ok');
-    $('summary').textContent = `合計 ${checkResults.length} 件 / NG ${ngCount} 件 / OK ${checkResults.length - ngCount} 件`;
+    if (checkResults.length === 0) {
+      // 画像(tif/jpg)が0件。psdのみ等のケース。per-file集計は無いので誤解のない文言にする。
+      const psdCount = allFiles.filter(f => f.kind === 'psd').length;
+      $('summary').textContent = `画像ファイル(tif/jpg)は0件でした${psdCount ? `(psd ${psdCount}件のみ)` : ''}。下のファイルセット整合性チェックのみ実施しました。`;
+    } else {
+      $('summary').textContent = `合計 ${checkResults.length} 件 / NG ${ngCount} 件 / OK ${checkResults.length - ngCount} 件`;
+    }
     renderSetChecks(allFiles);
-    $('tableWrap').style.display = 'block';
+    $('tableWrap').style.display = checkResults.length ? 'block' : 'none';
     $('csvBtn').disabled = false;
+    $('pdfBtn').disabled = false;
   } catch (e) {
     setStatus('checkStatus', 'エラー: ' + e.message, 'error');
   } finally {
@@ -1586,53 +1710,15 @@ function escapeHtml(s) {
 // これらは1ファイル単位のNGとは別レイヤーの「要確認」警告として表示する。
 function renderSetChecks(allFiles) {
   const box = $('setCheckBox');
-  const roots = [...new Set(allFiles.map(f => f.root))];
-  const warnings = []; // {title, items:[htmlString]}
+  const { ok, warnings } = computeSetChecks(allFiles);
 
-  // --- 入力フォルダ単位: 重複 / 連番抜け / 最大番号ずれ ---
-  for (const root of roots) {
-    const files = allFiles.filter(f => f.root === root);
-    for (const kind of ['image', 'psd']) { // 種別ごとに独立して番号整合性を見る
-      const group = files.filter(f => f.kind === kind);
-      if (!group.length) continue;
-      const a = analyzeFolderNumbering(group);
-      const kindLabel = kind === 'psd' ? 'psd' : '画像';
-      const items = [];
-      for (const d of a.duplicates) {
-        items.push(`ページ ${d.number} が重複(${d.names.map(escapeHtml).join(' / ')})→ 古いファイルを削除し、正しい1点のみ残してください`);
-      }
-      if (a.missing.length) items.push(`連番の欠番: ${a.missing.join(', ')}(アップ漏れの可能性)`);
-      if (a.countMismatch && !a.duplicates.length && !a.missing.length) {
-        items.push(`最大番号 ${a.countMismatch.max} に対しファイル数 ${a.countMismatch.count} 件(番号のずれ・アップ漏れの可能性)`);
-      }
-      if (a.unnumbered.length) items.push(`番号を読み取れないファイル: ${a.unnumbered.map(escapeHtml).join(' / ')}`);
-      if (items.length) warnings.push({ title: `フォルダ ${escapeHtml(root)} / ${kindLabel}(${group.length}件)`, items });
-    }
-  }
-
-  // --- 実行全体: psd と 画像 のページ突合(psdがある時のみ) ---
-  const psdFiles = allFiles.filter(f => f.kind === 'psd');
-  if (psdFiles.length) {
-    const imageNums = allFiles.filter(f => f.kind === 'image').map(f => extractPageNumber(f.name)).filter(n => n != null);
-    const psdNums = psdFiles.map(f => extractPageNumber(f.name)).filter(n => n != null);
-    const c = comparePsdTif(imageNums, psdNums);
-    const items = [];
-    if (c.imageCount !== c.psdCount) items.push(`画像 ${c.imageCount} 件 / psd ${c.psdCount} 件 でファイル数が不一致`);
-    if (c.onlyImage.length) items.push(`psd が無いページ: ${c.onlyImage.join(', ')}`);
-    if (c.onlyPsd.length) items.push(`画像が無いページ: ${c.onlyPsd.join(', ')}`);
-    if (items.length) {
-      items.push('※ 1案件ずつ実行する前提で、全入力フォルダを横断して集計しています');
-      warnings.push({ title: 'psd と 画像 の突合(実行全体)', items });
-    }
-  }
-
-  if (!warnings.length) {
+  if (ok) {
     box.innerHTML = `<div style="border:1px solid var(--ok); background:var(--ok-bg,#ecfdf5); color:var(--ok); border-radius:8px; padding:10px 14px; font-size:12.5px;">✅ ファイルセット整合性チェック: 問題は見つかりませんでした(重複・連番抜け・最大番号ずれ・psd/画像の突合)</div>`;
   } else {
     const sections = warnings.map(w => `
       <div style="margin-top:8px;">
-        <div style="font-weight:700; font-size:12.5px;">${w.title}</div>
-        <ul style="margin:4px 0 0; padding-left:18px; font-size:12.5px; line-height:1.7;">${w.items.map(i => `<li>${i}</li>`).join('')}</ul>
+        <div style="font-weight:700; font-size:12.5px;">${escapeHtml(w.title)}</div>
+        <ul style="margin:4px 0 0; padding-left:18px; font-size:12.5px; line-height:1.7;">${w.items.map(i => `<li>${escapeHtml(i)}</li>`).join('')}</ul>
       </div>`).join('');
     box.innerHTML = `<div style="border:1px solid var(--ng); background:var(--ng-bg); border-radius:8px; padding:12px 14px; color:var(--text);">
       <div style="font-weight:700; color:var(--ng); font-size:13px;">⚠ ファイルセット整合性チェック: 要確認</div>
@@ -1642,7 +1728,12 @@ function renderSetChecks(allFiles) {
   box.style.display = 'block';
 }
 
+// CSV/PDF共通: 日付(ファイル名・見出し用)
+function todayStamp() { return new Date().toISOString().slice(0, 10); }
+
+// ---------- CSV 出力(per-fileの判定 + ファイルセット整合性チェック) ----------
 $('csvBtn').addEventListener('click', () => {
+  const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const header = ['判定', 'ファイル名', 'フォルダ', '幅(px)', '高さ(px)', 'DPI(X)', 'DPI(Y)', 'カラーモード', '拡張子', '期待値', '詳細'];
   const lines = [header.join(',')];
   for (const r of checkResults) {
@@ -1652,17 +1743,91 @@ $('csvBtn').addEventListener('click', () => {
     const dy = r.spec ? (r.spec.dpiY ?? '') : '';
     const cm = r.spec ? (r.spec.colorMode ?? '') : '';
     const ex = normExt(fileExt(r.file.name));
-    const cells = [r.ok ? 'OK' : 'NG', r.file.name, r.file.folder, w, h, dx, dy, cm, ex, r.expected, r.reason]
-      .map(v => `"${String(v).replace(/"/g, '""')}"`);
-    lines.push(cells.join(','));
+    lines.push([r.ok ? 'OK' : 'NG', r.file.name, r.file.folder, w, h, dx, dy, cm, ex, r.expected, r.reason].map(csvCell).join(','));
   }
-  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+
+  // ファイルセット整合性チェックも同じCSVに含める(チーム共有時に画面外の情報を落とさない)。
+  const setChecks = computeSetChecks(lastAllFiles);
+  lines.push('');
+  lines.push(csvCell('■ ファイルセット整合性チェック'));
+  if (setChecks.ok) {
+    lines.push(csvCell('問題は見つかりませんでした(重複・連番抜け・最大番号ずれ・psd/画像の突合)'));
+  } else {
+    for (const w of setChecks.warnings) {
+      lines.push(csvCell(w.title));
+      for (const it of w.items) lines.push(',' + csvCell(it));
+    }
+  }
+
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `原稿サイズチェック結果_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `原稿サイズチェック結果_${todayStamp()}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+});
+
+// ---------- PDF 出力(印刷ダイアログ経由。外部ライブラリ不要) ----------
+$('pdfBtn').addEventListener('click', () => {
+  const esc = escapeHtml;
+  const rowsHtml = checkResults.map(r => {
+    const w = r.spec ? (r.spec.width ?? '?') : '?';
+    const h = r.spec ? (r.spec.height ?? '?') : '?';
+    const dpi = r.spec ? `X:${r.spec.dpiX ?? '?'} / Y:${r.spec.dpiY ?? '?'}` : '?';
+    const color = r.spec ? (r.spec.colorMode ?? '?') : '?';
+    const ext = normExt(fileExt(r.file.name)) || '?';
+    return `<tr class="${r.ok ? '' : 'ng'}">
+      <td class="${r.ok ? 'ok' : 'fail'}">${r.ok ? 'OK' : 'NG'}</td>
+      <td>${esc(r.file.name)}</td><td>${esc(r.file.folder)}</td>
+      <td>${w}</td><td>${h}</td><td>${esc(dpi)}</td><td>${esc(color)}</td><td>${esc(ext)}</td>
+      <td>${esc(r.reason)}</td></tr>`;
+  }).join('');
+
+  const setChecks = computeSetChecks(lastAllFiles);
+  let setHtml;
+  if (setChecks.ok) {
+    setHtml = `<p class="set-ok">✅ 問題は見つかりませんでした(重複・連番抜け・最大番号ずれ・psd/画像の突合)</p>`;
+  } else {
+    setHtml = setChecks.warnings.map(w =>
+      `<div class="set-warn"><div class="set-title">${esc(w.title)}</div><ul>${w.items.map(i => `<li>${esc(i)}</li>`).join('')}</ul></div>`).join('');
+  }
+
+  const ngCount = checkResults.filter(r => !r.ok).length;
+  const summary = checkResults.length
+    ? `合計 ${checkResults.length} 件 / NG ${ngCount} 件 / OK ${checkResults.length - ngCount} 件`
+    : `画像ファイル(tif/jpg)は0件。ファイルセット整合性チェックのみ実施。`;
+
+  const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>原稿サイズチェック結果_${todayStamp()}</title>
+    <style>
+      *{box-sizing:border-box;} body{font-family:-apple-system,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;color:#111;margin:24px;font-size:12px;}
+      h1{font-size:18px;margin:0 0 4px;} .meta{color:#555;font-size:11px;margin-bottom:2px;}
+      .summary{font-weight:700;margin:10px 0;}
+      table{border-collapse:collapse;width:100%;margin-top:6px;} th,td{border:1px solid #bbb;padding:4px 6px;text-align:left;vertical-align:top;word-break:break-word;}
+      th{background:#f0f0f0;} tr.ng{background:#fdecec;} td.ok{color:#0a7a35;font-weight:700;} td.fail{color:#c62828;font-weight:700;}
+      h2{font-size:14px;margin:20px 0 6px;} .set-ok{color:#0a7a35;font-weight:700;}
+      .set-warn{border:1px solid #e0a800;background:#fff9e6;border-radius:6px;padding:8px 10px;margin-top:8px;}
+      .set-title{font-weight:700;margin-bottom:2px;} .set-warn ul{margin:2px 0 0;padding-left:18px;line-height:1.6;}
+      @media print{ body{margin:0;} }
+    </style></head><body>
+    <h1>原稿サイズチェック結果</h1>
+    <div class="meta">出力日: ${todayStamp()}</div>
+    <div class="meta">判定条件: ${esc(lastRunExpected || '(なし)')}</div>
+    <div class="summary">${esc(summary)}</div>
+    ${checkResults.length ? `<table><thead><tr>
+      <th>判定</th><th>ファイル名</th><th>フォルダ</th><th>幅</th><th>高さ</th><th>DPI</th><th>カラー</th><th>拡張子</th><th>詳細</th>
+      </tr></thead><tbody>${rowsHtml}</tbody></table>` : ''}
+    <h2>ファイルセット整合性チェック</h2>
+    ${setHtml}
+    </body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { setStatus('checkStatus', 'ポップアップがブロックされました。ブラウザのポップアップ許可後に再度お試しください。', 'error'); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  // 描画完了後に印刷ダイアログ(「PDFに保存」を選べる)を開く。
+  win.onload = () => { win.focus(); win.print(); };
 });
 
 // 全定義の初期化後にセッション復元(キャッシュがあればマスタも自動読込)
