@@ -1,0 +1,1211 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>原稿サイズチェッカー</title>
+<base target="_blank">
+<!-- サーバ(Code.gs doGet)から渡す値: ログイン中のメール・このツールのURL・マスタのURL など -->
+<script>var BOOT = <?!= bootJson ?>;</script>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --border:#dfe3e8; --text:#1f2328; --muted:#6b7280;
+    --accent:#2563eb; --accent-hover:#1d4ed8; --ok:#0f9d58; --ng:#d93025; --ng-bg:#fdecea;
+  }
+  *{box-sizing:border-box;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Hiragino Kaku Gothic ProN",sans-serif;
+       background:var(--bg); color:var(--text); margin:0; padding:24px; line-height:1.6;}
+  h1{font-size:20px; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:20px;}
+  .card{background:var(--card); border:1px solid var(--border); border-radius:10px; padding:18px 20px; margin-bottom:16px;}
+  .card h2{font-size:15px; margin:0 0 12px; display:flex; align-items:center; gap:8px;}
+  .badge{font-size:11px; padding:2px 8px; border-radius:999px; background:#eef2ff; color:var(--accent); font-weight:600;}
+  label{display:block; font-size:12px; color:var(--muted); margin-bottom:4px; margin-top:10px;}
+  label:first-child{margin-top:0;}
+  input[type=text], input[type=number], textarea, select{
+    width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;
+    background:#fff; color:var(--text); font-family:inherit;
+  }
+  textarea{resize:vertical; min-height:70px;}
+  .row{display:flex; gap:12px; flex-wrap:wrap;}
+  .row > div{flex:1; min-width:140px;}
+  button{
+    background:var(--accent); color:#fff; border:none; padding:8px 16px; border-radius:6px;
+    font-size:13px; cursor:pointer; font-weight:600; margin-top:12px; margin-right:8px;
+  }
+  button:hover{background:var(--accent-hover);}
+  button.secondary{background:#fff; color:var(--accent); border:1px solid var(--accent);}
+  button.secondary:hover{background:#eef2ff;}
+  button:disabled{background:#c7cbd1; cursor:not-allowed;}
+  .status{font-size:12px; margin-top:8px; color:var(--muted);}
+  .status.ok{color:var(--ok);}
+  .status.error{color:var(--ng);}
+  table{width:100%; border-collapse:collapse; font-size:12.5px; margin-top:14px;}
+  th, td{border-bottom:1px solid var(--border); padding:6px 8px; text-align:left; white-space:nowrap;}
+  th{background:#fafbfc; position:sticky; top:0;}
+  tr.ng{background:var(--ng-bg);}
+  .pass{color:var(--ok); font-weight:700;}
+  .fail{color:var(--ng); font-weight:700;}
+  .table-wrap{max-height:480px; overflow:auto; border:1px solid var(--border); border-radius:8px; margin-top:10px;}
+  .summary{font-size:13px; margin-top:10px; font-weight:600;}
+  details.guide{margin-bottom:16px;}
+  details.guide summary{cursor:pointer; font-weight:600; font-size:13px; color:var(--accent);}
+  details.guide .content{font-size:12.5px; color:var(--text); margin-top:10px; background:#fafbfc; padding:14px 16px; border-radius:8px; border:1px solid var(--border);}
+  details.guide ol{padding-left:20px;}
+  details.guide li{margin-bottom:6px;}
+  code{background:#eef0f2; padding:1px 5px; border-radius:4px; font-size:12px;}
+  .progress-bar{height:6px; background:#e5e7eb; border-radius:4px; overflow:hidden; margin-top:10px;}
+  .progress-bar-inner{height:100%; background:var(--accent); width:0%; transition:width .2s;}
+
+  .topbar{display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;}
+  .tabs{display:flex; gap:4px;}
+  .tab-btn{
+    background:transparent; color:var(--muted); border:none; padding:9px 16px; border-radius:8px 8px 0 0;
+    font-size:13.5px; font-weight:600; margin:0; cursor:pointer; border-bottom:2px solid transparent;
+  }
+  .tab-btn:hover{background:#eef2ff; color:var(--accent);}
+  .tab-btn.active{color:var(--accent); border-bottom:2px solid var(--accent); background:#fff;}
+  .news-badge{display:inline-block; margin-left:6px; font-size:9.5px; font-weight:700; letter-spacing:.3px;
+    color:#fff; background:var(--ng); border-radius:999px; padding:1px 6px; vertical-align:middle;}
+  /* お知らせ一覧: タイトルの行(クリックで詳細モーダル) */
+  .news-row{display:flex; align-items:center; gap:10px; width:100%; text-align:left; margin:0 0 8px;
+    border:1px solid var(--border); border-radius:8px; padding:11px 14px; background:#fafbfc; cursor:pointer;
+    font-family:inherit; transition:background .12s, border-color .12s;}
+  .news-row:hover{background:#eef2ff; border-color:var(--accent);}
+  .news-row .news-row-date{font-size:11px; color:var(--muted); font-weight:600; flex:0 0 auto; min-width:78px;}
+  .news-row .news-row-title{font-size:13.5px; font-weight:600; color:var(--text); flex:1 1 auto;}
+  .news-row .news-row-arrow{color:var(--muted); flex:0 0 auto; font-size:13px;}
+  .news-row.is-new .news-row-title::after{content:'NEW'; margin-left:8px; font-size:9.5px; font-weight:700; color:#fff;
+    background:var(--ng); border-radius:999px; padding:1px 6px; vertical-align:middle;}
+  /* お知らせ詳細モーダル */
+  .modal-overlay{position:fixed; inset:0; background:rgba(15,23,42,.45); display:flex; align-items:center;
+    justify-content:center; padding:24px; z-index:1000;}
+  .modal-card{position:relative; background:var(--card); border:1px solid var(--border); border-radius:12px;
+    padding:22px 24px; max-width:560px; width:100%; max-height:80vh; overflow:auto; box-shadow:0 12px 40px rgba(0,0,0,.18);}
+  .modal-card .news-date{font-size:11px; color:var(--muted); font-weight:600;}
+  .modal-card p{margin:2px 0; font-size:13px; line-height:1.8;}
+  .modal-close{position:absolute; top:10px; right:12px; background:transparent; border:none; color:var(--muted);
+    font-size:22px; line-height:1; width:32px; height:32px; padding:0; margin:0; cursor:pointer; border-radius:6px;}
+  .modal-close:hover{background:#eef2ff; color:var(--accent);}
+  .account{font-size:12px; color:var(--muted); text-align:right;}
+  .view{display:none;}
+  .view.active{display:block;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>原稿サイズチェッカー</h1>
+    <div class="sub" style="margin-bottom:0;">Google Drive上の画像(TIFF/JPEG)の寸法(px)・DPI・カラーモード・拡張子を、取引先ごとのマスタ設定と照合します(幅・高さは以上/ちょうど/以下で判定可)。画像は Google Drive 上で先頭部分(寸法・解像度が書かれた部分)だけを読んで判定し、ファイルのダウンロードやアップロードはしません。</div>
+    <div class="sub" style="margin-bottom:0;"><a href="https://drive.google.com/drive/folders/1sqqSQp3UWY-JS7FOWel1UgqbFy6zmq6o" target="_blank">📖 コミックシーモアの原稿仕様資料はこちら</a></div>
+  </div>
+  <div class="account">ログイン中: <b id="accountEmail" style="color:var(--text);"></b></div>
+</div>
+
+<div id="appMain" style="margin-top:16px;">
+<div class="tabs">
+  <button class="tab-btn active" id="tabBtnNews" data-view="view-news">📢 お知らせ<span id="newsBadge" class="news-badge" style="display:none;">NEW</span></button>
+  <button class="tab-btn" id="tabBtnRun" data-view="view-run">チェック実行</button>
+  <button class="tab-btn" id="tabBtnMaster" data-view="view-master">取引先マスタ管理</button>
+</div>
+
+<div class="view active" id="view-news">
+  <div class="card">
+    <h2>📢 お知らせ ・ 最新アップデート</h2>
+    <div class="sub" style="margin-bottom:8px;">ツールの追加機能・変更点はここでお知らせします。ログイン後はまずこの画面が開きます。タイトルをクリックすると詳細が開きます。</div>
+    <div id="newsList"></div>
+    <button id="newsProceedBtn" style="margin-top:14px;">チェックへ進む →</button>
+  </div>
+</div>
+
+<!-- お知らせ詳細モーダル -->
+<div id="newsModal" class="modal-overlay" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="newsModalTitle">
+  <div class="modal-card">
+    <button type="button" id="newsModalClose" class="modal-close" aria-label="閉じる">×</button>
+    <div class="news-date" id="newsModalDate"></div>
+    <h3 id="newsModalTitle" style="margin:2px 0 12px; font-size:16px;"></h3>
+    <div id="newsModalBody"></div>
+  </div>
+</div>
+
+<div class="view" id="view-master">
+<div class="card">
+  <h2>取引先マスタ管理</h2>
+  <label>登録済み取引先</label>
+  <div class="row">
+    <div style="flex:2">
+      <select id="clientSelect"><option value="">-- 新規登録 --</option></select>
+    </div>
+    <div>
+      <button id="reloadMasterBtn" class="secondary" style="margin-top:0;">一覧を再読み込み</button>
+    </div>
+  </div>
+  <div class="sub" style="margin-bottom:0;">数値を空欄にした項目はチェックしません(例: 高さを空欄にすると高さは不問)。幅・高さは「以上/ちょうど/以下」で判定できます。</div>
+  <div class="row">
+    <div>
+      <label>取引先名</label>
+      <input type="text" id="clientName" placeholder="例: 〇〇出版">
+    </div>
+    <div>
+      <label>幅 (px)</label>
+      <input type="number" id="specWidth" placeholder="例: 3000 / 空欄=不問">
+    </div>
+    <div>
+      <label>幅の判定</label>
+      <select id="specWidthOp">
+        <option value="ちょうど">ちょうど</option>
+        <option value="以上">以上</option>
+        <option value="以下">以下</option>
+      </select>
+    </div>
+    <div>
+      <label>高さ (px)</label>
+      <input type="number" id="specHeight" placeholder="例: 4000 / 空欄=不問">
+    </div>
+    <div>
+      <label>高さの判定</label>
+      <select id="specHeightOp">
+        <option value="ちょうど">ちょうど</option>
+        <option value="以上">以上</option>
+        <option value="以下">以下</option>
+      </select>
+    </div>
+    <div>
+      <label>DPI</label>
+      <input type="number" id="specDpi" placeholder="例: 350 / 空欄=不問">
+    </div>
+    <div>
+      <label>カラーモード</label>
+      <select id="specColor">
+        <option value="">指定なし(不問)</option>
+        <option value="グレースケール">グレースケール</option>
+        <option value="カラー">カラー</option>
+      </select>
+    </div>
+    <div>
+      <label>拡張子</label>
+      <select id="specExt">
+        <option value="">指定なし(不問)</option>
+        <option value="tiff">tiff</option>
+        <option value="jpg">jpg</option>
+      </select>
+    </div>
+  </div>
+  <button id="saveClientBtn">この内容をマスタに保存</button>
+  <div class="status" id="masterStatus"></div>
+
+  <div class="table-wrap" id="masterTableWrap" style="margin-top:16px;">
+    <table id="masterTable">
+      <thead>
+        <tr><th>取引先名</th><th>幅(px)</th><th>幅判定</th><th>高さ(px)</th><th>高さ判定</th><th>DPI</th><th>カラーモード</th><th>拡張子</th><th>操作</th></tr>
+      </thead>
+      <tbody id="masterTableBody"></tbody>
+    </table>
+  </div>
+</div>
+</div>
+
+<div class="view" id="view-run">
+<details class="guide" id="usageGuide">
+  <summary>📘 はじめての方へ ・ 使い方(3ステップ)</summary>
+  <div class="content">
+    <ol>
+      <li><b>取引先を選ぶ</b> … 下の「① 取引先を選択」で選ぶと、その取引先の判定条件(サイズ・DPI・カラーモード・拡張子)が自動で入ります。</li>
+      <li><b>チェックしたいGoogle Driveのフォルダを貼り付ける</b> … Driveでフォルダを開いたときのURLをそのままコピーして貼り付けます。複数フォルダは改行で追加できます。中のサブフォルダもまとめて調べたいときは、下の「サブフォルダも含めてチェックする」にチェックを入れてください。</li>
+      <li><b>「チェック開始」を押す</b> … 各画像の寸法(px)・DPI・カラーモード・拡張子を条件と照合し、OK / NG を一覧で表示します。結果は「CSVでダウンロード」または「PDFで保存(印刷)」で保存でき、どちらもファイルセット整合性チェックの内容を含みます。</li>
+    </ol>
+    <p style="margin:10px 0 0;">🔎 一覧の上に「<b>ファイルセット整合性チェック</b>」も表示します。ファイル名末尾の番号をもとに、<b>ページの重複</b>(古いファイルの消し忘れ)・<b>連番の欠番</b>・<b>ファイル数と最大番号のずれ</b>を検出します。psd フォルダも一緒に貼り付けると、<b>psd と画像でページが揃っているか</b>も突き合わせます(1案件ずつ実行してください)。</p>
+    <p style="margin:10px 0 0;">💡 画像は Google Drive 上で先頭部分(寸法・解像度が書かれた部分)だけを読みます。ファイルをダウンロード・アップロードすることはありません。取引先の条件を追加・変更したいときは、上の「取引先マスタ管理」タブから行えます。</p>
+  </div>
+</details>
+<div class="card">
+  <h2>チェック実行</h2>
+
+  <div id="masterErrorBox" style="display:none; background:var(--ng-bg); border:1px solid var(--ng); border-radius:8px; padding:12px 14px; margin-bottom:14px;">
+    <div style="font-weight:700; color:var(--ng); font-size:13px;">⚠ 取引先マスタ(データベース)を読み込めませんでした</div>
+    <div id="masterErrorMsg" style="font-size:12.5px; color:var(--text); margin-top:6px;"></div>
+    <div style="margin-top:10px;">
+      <button id="masterErrorNotifyBtn" style="margin-top:0;">管理者への連絡文をコピー</button>
+      <button id="masterErrorRetryBtn" class="secondary" style="margin-top:0;">再読み込み</button>
+    </div>
+    <div class="status" id="masterErrorStatus"></div>
+  </div>
+
+  <label>① 取引先を選択(下のサイズが自動で入力されます)</label>
+  <select id="runClientSelect"><option value="">-- 取引先を選択してください --</option></select>
+  <label style="margin-top:16px;">適用されるチェック条件 <span class="badge">取引先選択で自動表示</span></label>
+  <input type="text" id="runSpecSummary" placeholder="取引先を選択すると、この取引先の判定条件が表示されます" readonly>
+  <label style="margin-top:16px;">② 対象フォルダ(Google DriveのフォルダURL または ID。1行に1つ、複数可)</label>
+  <textarea id="folderList" placeholder="https://drive.google.com/drive/folders/xxxxx&#10;https://drive.google.com/drive/folders/yyyyy"></textarea>
+  <label style="display:flex; align-items:center; gap:6px; margin-top:10px;">
+    <input type="checkbox" id="recursiveCheck" style="width:auto;"> サブフォルダも含めてチェックする
+  </label>
+  <button id="runCheckBtn">③ チェック開始</button>
+  <button id="csvBtn" class="secondary" disabled>結果をCSVでダウンロード</button>
+  <button id="pdfBtn" class="secondary" disabled>結果をPDFで保存(印刷)</button>
+  <div class="progress-bar" id="progressBar" style="display:none;"><div class="progress-bar-inner" id="progressBarInner"></div></div>
+  <div class="status" id="checkStatus"></div>
+  <div class="summary" id="summary"></div>
+  <div id="setCheckBox" style="display:none; margin-top:12px;"></div>
+  <div class="table-wrap" id="tableWrap" style="display:none;">
+    <table id="resultTable">
+      <thead>
+        <tr>
+          <th>判定</th><th>ファイル名</th><th>フォルダ</th>
+          <th>幅(px)</th><th>高さ(px)</th><th>DPI</th><th>カラーモード</th><th>拡張子</th>
+          <th>期待値</th><th>詳細</th><th>リンク</th>
+        </tr>
+      </thead>
+      <tbody id="resultBody"></tbody>
+    </table>
+  </div>
+</div>
+</div>
+</div><!-- /appMain -->
+
+<script>
+'use strict';
+
+// ============================================================
+// サーバ呼び出し・コピー
+// ============================================================
+// google.script.run を Promise にする。失敗時はサーバのエラーメッセージで reject する。
+function callServer(fn, ...args) {
+  return new Promise((resolve, reject) => {
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[fn](...args);
+  });
+}
+
+// クリップボードへコピー。GASの画面は iframe の中なので navigator.clipboard が使えないことがあり、その場合は execCommand に切り替える。
+function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).catch(() => copyTextFallback(text));
+  }
+  return copyTextFallback(text);
+}
+function copyTextFallback(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  const ok = document.execCommand('copy');
+  document.body.removeChild(ta);
+  return ok ? Promise.resolve() : Promise.reject(new Error('コピーできませんでした'));
+}
+
+// 画像の解析は1回のサーバ呼び出しで何ファイルずつ行うか(Code.gs の INSPECT_BATCH_MAX 以下)。
+const INSPECT_BATCH_SIZE = 20;
+
+let masterRows = []; // {rowNumber, name, width, widthOp, height, heightOp, dpi, color, ext}
+let checkResults = [];
+let lastAllFiles = []; // 直近のチェックで走査した全ファイル(CSV/PDF出力・セット整合性チェックで再利用)
+let lastRunExpected = ''; // 直近チェックの期待値説明(出力の見出し用)
+let runSpec = null; // 選択中取引先の判定条件 {name, width, widthOp, height, heightOp, dpi, color, ext}
+let currentUserEmail = BOOT.email || null; // ログイン中ユーザーのメール(サーバから受け取る)
+let masterLoadErrorCode = null; // 直近のマスタ読み込み失敗のHTTPコード(0=通信/例外, null=失敗なし)
+
+const $ = (id) => document.getElementById(id);
+
+// ---------- Tabs / settings toggle ----------
+function showView(viewId) {
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === viewId));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.view === viewId));
+}
+let lastTabView = 'view-run';
+$('tabBtnRun').addEventListener('click', () => { lastTabView = 'view-run'; showView('view-run'); });
+$('tabBtnMaster').addEventListener('click', () => { lastTabView = 'view-master'; showView('view-master'); });
+$('tabBtnNews').addEventListener('click', () => { showNews(); });
+$('newsProceedBtn').addEventListener('click', () => { markNewsRead(); lastTabView = 'view-run'; showView('view-run'); });
+
+// ---------- お知らせ(最新アップデート) ----------
+// 新しいものを先頭に。id を変えると「NEW」バッジが再点灯し、次回ログイン時に自動表示される。
+const NEWS = [
+  {
+    id: '2026-09-16-gas-beta',
+    date: '2026-09-16',
+    title: '新しい版(登録した人だけが開ける版)を試験公開しました',
+    body: [
+      'この画面は、社内ツール用の場所(Google Apps Script)に作った新しい版です。これまでの版(github.io)もしばらくそのまま使えます。',
+      '「Googleでログイン」ボタンはありません。開いた時点でGoogleアカウントを確認し、社員情報ハブで登録された人だけが画面を見られます。初めて開いたときだけ「アクセスを許可」の確認が出ます。',
+      'チェックの中身(寸法・DPI・カラーモード・拡張子・ファイルセット整合性・CSV/PDF保存)と取引先マスタは、これまでの版と同じです。マスタはどちらの版から保存しても同じシートに入ります。',
+      '画像は Google Drive 上で先頭部分だけを読んで判定します。ファイルをダウンロード・アップロードすることはありません。',
+    ],
+  },
+  {
+    id: '2026-08-26-export-and-news',
+    date: '2026-08-26',
+    title: '結果のPDF保存と、お知らせ画面の見直し',
+    body: [
+      'チェック結果を「PDFで保存(印刷)」できるボタンを追加しました。従来のCSVと合わせて、チーム内での共有・保管に使えます。CSV・PDFのどちらにも「ファイルセット整合性チェック」の内容が含まれます。',
+      'このお知らせ画面をタブの一番左に移動し、ログイン後に最初に開くようにしました。各お知らせはタイトルをクリックすると詳細が開きます。',
+      'psd と画像の突合で、複数の案件を一度に実行してページ番号がぶつかった場合は、結果を鵜呑みにしないよう警告を出すようにしました(突合は引き続き1案件ずつの実行を推奨)。',
+      '画像が0件(psdのみ)のときの集計表示を、実態に合う文言に修正しました。',
+    ],
+  },
+  {
+    id: '2026-08-21-set-checks',
+    date: '2026-08-21',
+    title: 'ファイルセット整合性チェックを追加しました',
+    body: [
+      'チェック結果の一覧の上に「ファイルセット整合性チェック」を表示するようになりました。ファイル名末尾の番号をもとに、次を自動で検出します。',
+      '● ページの重複(修正時の古いファイルの消し忘れ) → 正しい1点だけ残すよう案内します',
+      '● 連番の欠番(途中ページのアップ漏れの可能性)',
+      '● ファイル数と最大番号のずれ',
+      'psd のフォルダも一緒に貼り付けると、psd と画像でページが揃っているか(数・抜け)も突き合わせます。突合は1案件ずつ実行してください。',
+    ],
+  },
+];
+
+// お知らせは「タイトルの一覧」で表示し、クリックで詳細モーダルを開く。
+function renderNews() {
+  const seen = getSeenNewsId();
+  if (!NEWS.length) {
+    $('newsList').innerHTML = `<div class="sub" style="margin:0;">現在お知らせはありません。</div>`;
+    return;
+  }
+  $('newsList').innerHTML = NEWS.map(n => `
+    <button type="button" class="news-row ${n.id !== seen ? 'is-new' : ''}" data-news-id="${escapeHtml(n.id)}">
+      <span class="news-row-date">${escapeHtml(n.date)}</span>
+      <span class="news-row-title">${escapeHtml(n.title)}</span>
+      <span class="news-row-arrow">詳細 ›</span>
+    </button>`).join('');
+}
+
+// お知らせ詳細モーダルの開閉。
+function openNewsModal(id) {
+  const n = NEWS.find(x => x.id === id);
+  if (!n) return;
+  $('newsModalDate').textContent = n.date;
+  $('newsModalTitle').textContent = n.title;
+  $('newsModalBody').innerHTML = n.body.map(p => `<p>${escapeHtml(p)}</p>`).join('');
+  $('newsModal').style.display = 'flex';
+}
+function closeNewsModal() { $('newsModal').style.display = 'none'; }
+
+$('newsList').addEventListener('click', (e) => {
+  const row = e.target.closest('[data-news-id]');
+  if (row) openNewsModal(row.dataset.newsId);
+});
+$('newsModalClose').addEventListener('click', closeNewsModal);
+$('newsModal').addEventListener('click', (e) => { if (e.target === $('newsModal')) closeNewsModal(); }); // 背景クリックで閉じる
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('newsModal').style.display !== 'none') closeNewsModal(); });
+function getSeenNewsId() {
+  try { return localStorage.getItem('msc_seen_news') || ''; } catch (e) { return ''; }
+}
+function hasUnreadNews() {
+  return NEWS.length > 0 && NEWS[0].id !== getSeenNewsId();
+}
+function updateNewsBadge() {
+  $('newsBadge').style.display = hasUnreadNews() ? '' : 'none';
+}
+function markNewsRead() {
+  if (NEWS.length) { try { localStorage.setItem('msc_seen_news', NEWS[0].id); } catch (e) {} }
+  updateNewsBadge(); // タブの NEW バッジは消す(表示中の項目内 NEW タグはそのまま残す)
+}
+// お知らせ画面を開く。開いた時点で既読にする(タブのバッジも消える)。
+function showNews() {
+  renderNews();       // 既読状態を反映して描画(この時点では未読なら項目に NEW タグが付く)
+  showView('view-news');
+  markNewsRead();     // 既読を保存。表示中リストは再描画しないので NEW タグは残す
+}
+
+// 取引先マスタを開くURL(管理者への連絡文などに載せる)。
+function masterSheetUrl() {
+  return BOOT.masterSheetUrl;
+}
+
+function setStatus(id, msg, type) {
+  const el = $(id);
+  el.textContent = msg;
+  el.className = 'status' + (type ? ' ' + type : '');
+}
+
+// 使い方ガイド: 初めて開いたときだけ自動で開く(既読は localStorage に記録)。
+function maybeOpenUsageGuide() {
+  const guide = $('usageGuide');
+  if (!guide) return;
+  let seen = false;
+  try { seen = !!localStorage.getItem('msc_seen_usage_guide'); } catch (e) {}
+  if (seen) return;
+  guide.open = true;
+  try { localStorage.setItem('msc_seen_usage_guide', '1'); } catch (e) {}
+}
+
+// 初回セットアップの結果(前田さんが初めて開いたときだけサーバから届く)。
+function setupNoticeText(setup) {
+  if (!setup) return '';
+  if (!setup.ok) return '⚠ 初回セットアップに失敗しました: ' + setup.message;
+  const s = setup.sync || {};
+  if (s.skipped) return '初回セットアップ: 同期の予約(' + setup.hours.join('・') + '時)はできましたが、社員情報ハブに genko-size-checker の有効な行が無いため、いまは管理者だけが入れます。';
+  return '初回セットアップが完了しました。社員情報ハブから ' + s.desired + '人分を登録し、' + setup.hours.join('・') + '時に自動で同期します。';
+}
+
+// ---------- 管理者への連絡文(マスタ読み込みエラー) ----------
+// マスタ読み込み失敗時に、利用者がコピーしてSlackに貼る文面(DOM非依存の純粋関数=単体テスト対象)。
+// 権限不足(403)と一時的エラーで、原因と依頼内容を出し分ける。
+function buildMasterErrorNotifyText(email, statusCode, toolUrl, sheetUrl) {
+  const who = email || '(メールアドレス取得できず)';
+  const isPermission = statusCode === 403;
+  const cause = isPermission
+    ? 'このアカウントに、取引先マスタ(スプレッドシート)の閲覧権限が無いと思われます(HTTP 403)。'
+    : (statusCode === 404
+        ? '取引先マスタ(スプレッドシート)が見つかりません(HTTP 404)。'
+        : ('取引先マスタの読み込みでエラーが発生しました(' + (statusCode ? 'HTTP ' + statusCode : '通信エラー') + ')。'));
+  const action = isPermission
+    ? `マスタスプレッドシート ${sheetUrl} の「共有」に、上記メールアドレスを閲覧者以上で追加してください。`
+    : `マスタスプレッドシート ${sheetUrl} が開けるか確認してください(一時的な不具合の可能性もあります)。`;
+  return `【原稿サイズチェッカー】取引先マスタを読み込めません\n` +
+    `利用者: ${who}\n` +
+    `原因: ${cause}\n` +
+    `お願い: ${action}\n` +
+    `ツール: ${toolUrl}`;
+}
+
+// ---------- Master (Google Sheets) ----------
+// 列: A取引先名 B幅px C高さpx D DPI Eカラーモード F幅判定 G高さ判定 H拡張子
+const MASTER_RANGE = 'A:H';
+const MASTER_HEADER = ['取引先名', '幅px', '高さpx', 'DPI', 'カラーモード', '幅判定', '高さ判定', '拡張子'];
+
+// マスタ読み込み失敗を、チェック画面の分かりやすいボックスで案内する。
+// 403(権限なし)は「管理者に連絡」で対応依頼、その他は再読み込みを促す。
+function showMasterError(statusCode) {
+  masterLoadErrorCode = statusCode;
+  let msg;
+  if (statusCode === 403) {
+    msg = 'あなたのアカウントには、取引先マスタ(データベース)への閲覧権限がありません。' +
+          '下の「管理者への連絡文をコピー」を押して、Slack の ' + BOOT.slackChannel + ' に貼ってください。担当者がアクセス権を付与したら「再読み込み」を押してください。';
+  } else if (statusCode === 404) {
+    msg = '取引先マスタ(データベース)が見つかりませんでした。設定が正しいか、担当者にご確認ください。' +
+          '「管理者への連絡文をコピー」を押して、Slack の ' + BOOT.slackChannel + ' に貼ってください。';
+  } else if (statusCode === 0) {
+    msg = '通信エラーで取引先マスタを読み込めませんでした。ネットワーク環境をご確認のうえ、「再読み込み」をお試しください。';
+  } else {
+    msg = `取引先マスタを読み込めませんでした (HTTP ${statusCode})。「再読み込み」をお試しください。` +
+          '改善しない場合は「管理者への連絡文をコピー」を押して、Slack の ' + BOOT.slackChannel + ' に貼ってください。';
+  }
+  $('masterErrorMsg').textContent = msg;
+  setStatus('masterErrorStatus', '', '');
+  $('masterErrorBox').style.display = '';
+  // どちらのプルダウンも「読み込めなかった」ことが分かる表示にしておく。
+  $('runClientSelect').innerHTML = '<option value="">-- 取引先マスタを読み込めませんでした --</option>';
+  $('clientSelect').innerHTML = '<option value="">-- 取引先マスタを読み込めませんでした --</option>';
+  setStatus('masterStatus', msg, 'error');
+}
+
+function hideMasterError() {
+  masterLoadErrorCode = null;
+  $('masterErrorBox').style.display = 'none';
+}
+
+async function loadMasterList() {
+  try {
+    hideMasterError();
+    setStatus('masterStatus', '読み込み中...', '');
+    const r = await callServer('api_loadMaster');
+    if (!r || !r.ok) { showMasterError(r ? r.status : 0); return; }
+    const values = r.values || [];
+    masterRows = [];
+    // row 1 = header (取引先名/幅px/高さpx/DPI), data starts row 2
+    for (let i = 1; i < values.length; i++) {
+      const r = values[i];
+      if (!r || !r[0]) continue;
+      masterRows.push({
+        rowNumber: i + 1,
+        name: r[0],
+        width: r[1],
+        height: r[2],
+        dpi: r[3],
+        color: r[4] || '',
+        widthOp: r[5] || 'ちょうど',
+        heightOp: r[6] || 'ちょうど',
+        ext: r[7] || ''
+      });
+    }
+    const sel = $('clientSelect');
+    sel.innerHTML = '<option value="">-- 新規登録 --</option>';
+    masterRows.forEach((r, idx) => {
+      const opt = document.createElement('option');
+      opt.value = idx;
+      opt.textContent = r.name;
+      sel.appendChild(opt);
+    });
+
+    const runSel = $('runClientSelect');
+    runSel.innerHTML = '<option value="">-- 取引先を選択してください --</option>';
+    masterRows.forEach((r, idx) => {
+      const opt = document.createElement('option');
+      opt.value = idx;
+      opt.textContent = r.name;
+      runSel.appendChild(opt);
+    });
+
+    if (masterRows.length === 0) {
+      setStatus('masterStatus', '取引先がまだ1件も登録されていません。「取引先マスタ管理」タブから追加してください。', 'ok');
+    } else {
+      setStatus('masterStatus', `${masterRows.length}件の取引先を読み込みました。`, 'ok');
+    }
+    renderMasterTable();
+  } catch (e) {
+    // それ以外(通信断・CORS・JSON崩れ等)は通信エラー扱いで案内。
+    showMasterError(0);
+  }
+}
+
+function renderMasterTable() {
+  const body = $('masterTableBody');
+  body.innerHTML = '';
+  masterRows.forEach((r, idx) => {
+    const tr = document.createElement('tr');
+    const hasW = r.width !== '' && r.width != null;
+    const hasH = r.height !== '' && r.height != null;
+    tr.innerHTML = `
+      <td>${escapeHtml(r.name)}</td>
+      <td>${hasW ? escapeHtml(r.width) : '不問'}</td>
+      <td>${hasW ? escapeHtml(r.widthOp) : '-'}</td>
+      <td>${hasH ? escapeHtml(r.height) : '不問'}</td>
+      <td>${hasH ? escapeHtml(r.heightOp) : '-'}</td>
+      <td>${(r.dpi !== '' && r.dpi != null) ? escapeHtml(r.dpi) : '不問'}</td>
+      <td>${escapeHtml(r.color || '指定なし')}</td>
+      <td>${escapeHtml(r.ext || '指定なし')}</td>
+      <td>
+        <button class="secondary" style="margin:0 4px 0 0; padding:4px 10px;" data-action="edit" data-idx="${idx}">編集</button>
+        <button class="secondary" style="margin:0; padding:4px 10px; color:var(--ng); border-color:var(--ng);" data-action="delete" data-idx="${idx}">削除</button>
+      </td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
+function loadRowIntoForm(idx) {
+  const r = masterRows[idx];
+  if (!r) return;
+  $('clientSelect').value = idx;
+  $('clientName').value = r.name;
+  $('specWidth').value = r.width;
+  $('specHeight').value = r.height;
+  $('specDpi').value = r.dpi;
+  $('specColor').value = r.color || '';
+  $('specWidthOp').value = r.widthOp || 'ちょうど';
+  $('specHeightOp').value = r.heightOp || 'ちょうど';
+  $('specExt').value = r.ext || '';
+  // 編集対象をフォームに読み込んだことを分かりやすく(フォームへスクロール+合図)
+  setStatus('masterStatus', `「${r.name}」を編集中です。内容を変更して「この内容をマスタに保存」を押してください。`, 'ok');
+  const nameEl = $('clientName');
+  nameEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  nameEl.focus();
+}
+
+async function deleteMasterRow(idx) {
+  const r = masterRows[idx];
+  if (!r) return;
+  if (!confirm(`「${r.name}」をマスタから削除します。よろしいですか？`)) return;
+  try {
+    setStatus('masterStatus', '削除中...', '');
+    await callServer('api_deleteMasterRow', r.rowNumber, r.name);
+    setStatus('masterStatus', '削除しました。', 'ok');
+    await loadMasterList();
+  } catch (e) {
+    setStatus('masterStatus', 'エラー: ' + e.message, 'error');
+  }
+}
+
+$('masterTableBody').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const idx = btn.dataset.idx;
+  if (btn.dataset.action === 'edit') loadRowIntoForm(idx);
+  if (btn.dataset.action === 'delete') deleteMasterRow(idx);
+});
+
+$('reloadMasterBtn').addEventListener('click', loadMasterList);
+$('masterErrorRetryBtn').addEventListener('click', loadMasterList);
+
+// マスタ読み込みエラー時: 担当者への連絡文をコピーする(Slackへは利用者が貼る)。
+$('masterErrorNotifyBtn').addEventListener('click', () => {
+  const text = buildMasterErrorNotifyText(currentUserEmail, masterLoadErrorCode, BOOT.toolUrl, masterSheetUrl());
+  copyText(text)
+    .then(() => setStatus('masterErrorStatus', '連絡文をコピーしました。Slack の ' + BOOT.slackChannel + ' に貼って送ってください。対応後は「再読み込み」を押してください。', 'ok'))
+    .catch(() => setStatus('masterErrorStatus', 'コピーできませんでした。お手数ですが ' + BOOT.slackChannel + ' に「取引先マスタを読み込めない」と連絡してください。', 'error'));
+});
+
+$('clientSelect').addEventListener('change', () => {
+  const idx = $('clientSelect').value;
+  if (idx === '') {
+    $('clientName').value = '';
+    $('specWidth').value = '';
+    $('specHeight').value = '';
+    $('specDpi').value = '';
+    $('specColor').value = '';
+    $('specWidthOp').value = 'ちょうど';
+    $('specHeightOp').value = 'ちょうど';
+    $('specExt').value = '';
+    return;
+  }
+  const r = masterRows[idx];
+  $('clientName').value = r.name;
+  $('specWidth').value = r.width;
+  $('specHeight').value = r.height;
+  $('specDpi').value = r.dpi;
+  $('specColor').value = r.color || '';
+  $('specWidthOp').value = r.widthOp || 'ちょうど';
+  $('specHeightOp').value = r.heightOp || 'ちょうど';
+  $('specExt').value = r.ext || '';
+});
+
+// masterRowから判定条件オブジェクトを作る
+function toSpec(r) {
+  return {
+    name: r.name,
+    width: r.width, widthOp: r.widthOp || 'ちょうど',
+    height: r.height, heightOp: r.heightOp || 'ちょうど',
+    dpi: r.dpi,
+    color: r.color || '',
+    ext: r.ext || ''
+  };
+}
+
+// 条件を人が読める文字列に
+function describeSpec(s) {
+  const parts = [];
+  const hasVal = v => v !== '' && v != null;
+  parts.push(hasVal(s.width) ? `幅 ${s.width}px ${s.widthOp}` : '幅 不問');
+  parts.push(hasVal(s.height) ? `高さ ${s.height}px ${s.heightOp}` : '高さ 不問');
+  parts.push(hasVal(s.dpi) ? `${s.dpi}dpi` : 'DPI 不問');
+  parts.push(s.color ? s.color : 'カラー不問');
+  parts.push(s.ext ? `拡張子 ${s.ext}` : '拡張子不問');
+  return parts.join(' / ');
+}
+
+$('runClientSelect').addEventListener('change', () => {
+  const idx = $('runClientSelect').value;
+  if (idx === '') {
+    runSpec = null;
+    $('runSpecSummary').value = '';
+    return;
+  }
+  runSpec = toSpec(masterRows[idx]);
+  $('runSpecSummary').value = describeSpec(runSpec);
+});
+
+$('saveClientBtn').addEventListener('click', async () => {
+  try {
+    const name = $('clientName').value.trim();
+    const width = $('specWidth').value.trim();
+    const height = $('specHeight').value.trim();
+    const dpi = $('specDpi').value.trim();
+    const color = $('specColor').value;
+    const widthOp = $('specWidthOp').value;
+    const heightOp = $('specHeightOp').value;
+    const ext = $('specExt').value;
+    if (!name) throw new Error('取引先名を入力してください');
+    if (!width && !height && !dpi && !color && !ext) throw new Error('幅・高さ・DPI・カラーモード・拡張子のうち、少なくとも1つは条件を設定してください');
+
+    setStatus('masterStatus', '保存中...', '');
+    const selIdx = $('clientSelect').value;
+    const existing = selIdx !== '' ? masterRows[selIdx] : masterRows.find(r => r.name === name);
+    const rowValues = [name, width, height, dpi, color, widthOp, heightOp, ext];
+    await callServer('api_saveMasterRow', rowValues, existing ? existing.rowNumber : null);
+    setStatus('masterStatus', '保存しました。', 'ok');
+    await loadMasterList();
+  } catch (e) {
+    setStatus('masterStatus', 'エラー: ' + e.message, 'error');
+  }
+});
+
+// ---------- Image type / extension helpers ----------
+// 期待拡張子名 -> 実ファイル拡張子の候補
+const EXT_ALIASES = { tiff: ['.tif', '.tiff'], tif: ['.tif', '.tiff'], jpg: ['.jpg', '.jpeg'], jpeg: ['.jpg', '.jpeg'], png: ['.png'] };
+
+function fileExt(name) {
+  const m = String(name).toLowerCase().match(/\.([a-z0-9]+)$/);
+  return m ? m[1] : '';
+}
+// 表示・照合用に拡張子を正規化(jpeg->jpg, tif->tiff)
+function normExt(ext) {
+  ext = (ext || '').toLowerCase().replace(/^\./, '');
+  if (ext === 'jpeg') return 'jpg';
+  if (ext === 'tif') return 'tiff';
+  return ext;
+}
+function isSupportedImage(name, mimeType) {
+  // 解析対応はTIFFとJPEGのみ(PNG等は走査対象外)
+  if (mimeType === 'image/tiff' || mimeType === 'image/jpeg') return true;
+  const e = fileExt(name);
+  return ['tif', 'tiff', 'jpg', 'jpeg'].includes(e);
+}
+// 期待拡張子とファイル名を照合。true=一致 / false=不一致 / null=チェック対象外
+function checkExtension(expectedExt, name) {
+  if (!expectedExt) return null;
+  const cands = EXT_ALIASES[expectedExt.toLowerCase()] || ['.' + expectedExt.toLowerCase()];
+  const lower = String(name).toLowerCase();
+  return cands.some(e => lower.endsWith(e));
+}
+
+// 数値条件の照合。true=OK / false=NG / null=対象外(空欄)
+function checkDimension(expected, actual, op) {
+  if (expected === '' || expected == null) return null; // 空欄=不問
+  const exp = parseInt(expected, 10);
+  if (isNaN(exp)) return null;
+  if (actual == null) return false; // 実測が取れない
+  if (op === '以上') return actual >= exp;
+  if (op === '以下') return actual <= exp;
+  return actual === exp; // ちょうど(既定)
+}
+
+// DPIの判定。期待DPIと実測(X/Y)を照合する。
+// DPIは「読めない=違反」ではなく、読めた軸だけ検証し、両軸とも不明なら未検証(OK扱い+注記)にする。
+// (JPEGはJFIFにしか解像度が無く units=0 のことがあり、寸法等が正しくても誤NGになるのを防ぐ)
+// 戻り値: { status: 'ok' | 'ng' | 'unverified', detail: string }
+function judgeDpi(expectedDpi, dpiX, dpiY) {
+  if (expectedDpi === '' || expectedDpi == null) return { status: 'ok', detail: '' }; // 不問
+  const known = [dpiX, dpiY].filter(v => v != null);
+  if (known.length === 0) return { status: 'unverified', detail: 'DPI未検証(ファイルに解像度情報なし)' };
+  const ng = known.some(v => checkDimension(expectedDpi, v, 'ちょうど') === false);
+  if (ng) return { status: 'ng', detail: `DPI不一致(期待 ${expectedDpi} / 実測 X:${dpiX ?? '不明'} / Y:${dpiY ?? '不明'})` };
+  return { status: 'ok', detail: '' };
+}
+
+// ---------- ファイルセット整合性チェック(重複/連番抜け/最大値ずれ/psd-tif不一致) ----------
+// ファイル名末尾の数字列をページ番号として抽出。数字を含まなければ null。
+// 例: 'sakuhin_001.tif'->1, '012.psd'->12, '2024_p3_v2.tif'->2(末尾側優先)
+function extractPageNumber(name) {
+  const base = String(name).replace(/\.[a-z0-9]+$/i, ''); // 拡張子除去
+  const m = base.match(/(\d+)(?!.*\d)/);                   // 末尾側の連続数字
+  return m ? parseInt(m[1], 10) : null;
+}
+
+// psd ファイル判定(拡張子 or Drive の mimeType)
+function isPsdFile(name, mimeType) {
+  if (mimeType === 'image/vnd.adobe.photoshop' || mimeType === 'application/x-photoshop') return true;
+  return fileExt(name) === 'psd';
+}
+
+// 1フォルダ内のファイル群のページ番号整合性を解析する。
+// files: [{name}]。戻り値に重複/連番抜け/最大番号ずれ/番号なしをまとめる。
+function analyzeFolderNumbering(files) {
+  const byNumber = new Map(); // number -> [name,...]
+  const unnumbered = [];
+  for (const f of files) {
+    const n = extractPageNumber(f.name);
+    if (n == null) { unnumbered.push(f.name); continue; }
+    if (!byNumber.has(n)) byNumber.set(n, []);
+    byNumber.get(n).push(f.name);
+  }
+  const numbers = [...byNumber.keys()].sort((a, b) => a - b);
+  const duplicates = numbers.filter(n => byNumber.get(n).length > 1)
+    .map(n => ({ number: n, names: byNumber.get(n).slice().sort() }));
+  const numberedCount = files.length - unnumbered.length;
+  const maxNumber = numbers.length ? numbers[numbers.length - 1] : 0;
+  const missing = [];
+  for (let i = 1; i < maxNumber; i++) if (!byNumber.has(i)) missing.push(i); // 1..max の欠番
+  // 最大番号ずれ: 番号付きファイル数 と 最大番号 が食い違う(重複や欠番、0始まり等で発生)
+  const countMismatch = (numbers.length && numberedCount !== maxNumber)
+    ? { max: maxNumber, count: numberedCount } : null;
+  return { total: files.length, numbers, duplicates, missing, maxNumber, numberedCount, countMismatch, unnumbered };
+}
+
+// psd と 画像(tif等)のページ番号セットを突き合わせる(数不一致/アップ漏れ検出)。
+// 案件を1つずつ実行する前提で、全入力フォルダを横断して集計する。
+// imageNums/psdNums はファイル1件につき1要素(番号なしは含めない)。
+function comparePsdTif(imageNums, psdNums) {
+  const imgSet = new Set(imageNums);
+  const psdSet = new Set(psdNums);
+  const onlyImage = [...imgSet].filter(n => !psdSet.has(n)).sort((a, b) => a - b); // 画像にあってpsdに無い
+  const onlyPsd = [...psdSet].filter(n => !imgSet.has(n)).sort((a, b) => a - b);   // psdにあって画像に無い
+  return { imageCount: imageNums.length, psdCount: psdNums.length, onlyImage, onlyPsd };
+}
+
+// 複数の入力フォルダ(root)にまたがって同じページ番号が存在するかを調べる。
+// 存在する場合は別案件が混在している可能性が高く、実行全体を横断するpsd↔画像の突合結果は当てにならない。
+// 種別(画像/psd)ごとに独立して判定する。戻り値: [{kind, number, roots:[...]}]。
+function detectCrossRootCollisions(allFiles) {
+  const collisions = [];
+  for (const kind of ['image', 'psd']) {
+    const byNumber = new Map(); // number -> Set(root)
+    for (const f of allFiles) {
+      if (f.kind !== kind) continue;
+      const n = extractPageNumber(f.name);
+      if (n == null) continue;
+      if (!byNumber.has(n)) byNumber.set(n, new Set());
+      byNumber.get(n).add(f.root);
+    }
+    for (const [n, roots] of byNumber) {
+      if (roots.size > 1) collisions.push({ kind, number: n, roots: [...roots].sort() });
+    }
+  }
+  collisions.sort((a, b) => a.kind === b.kind ? a.number - b.number : (a.kind < b.kind ? -1 : 1));
+  return collisions;
+}
+
+// ファイルセット整合性チェックの結果を「プレーンテキスト」で組み立てる(表示・CSV・PDFで共用)。
+// 戻り値: { ok:boolean, warnings:[{title, items:[string]}] }。HTMLエスケープは描画側の責務。
+function computeSetChecks(allFiles) {
+  const roots = [...new Set(allFiles.map(f => f.root))];
+  const warnings = [];
+
+  // --- 入力フォルダ単位: 重複 / 連番抜け / 最大番号ずれ / 番号なし ---
+  for (const root of roots) {
+    const files = allFiles.filter(f => f.root === root);
+    for (const kind of ['image', 'psd']) { // 種別ごとに独立して番号整合性を見る
+      const group = files.filter(f => f.kind === kind);
+      if (!group.length) continue;
+      const a = analyzeFolderNumbering(group);
+      const kindLabel = kind === 'psd' ? 'psd' : '画像';
+      const items = [];
+      for (const d of a.duplicates) {
+        items.push(`ページ ${d.number} が重複(${d.names.join(' / ')})→ 古いファイルを削除し、正しい1点のみ残してください`);
+      }
+      if (a.missing.length) items.push(`連番の欠番: ${a.missing.join(', ')}(アップ漏れの可能性)`);
+      if (a.countMismatch && !a.duplicates.length && !a.missing.length) {
+        items.push(`最大番号 ${a.countMismatch.max} に対しファイル数 ${a.countMismatch.count} 件(番号のずれ・アップ漏れの可能性)`);
+      }
+      if (a.unnumbered.length) items.push(`番号を読み取れないファイル: ${a.unnumbered.join(' / ')}`);
+      if (items.length) warnings.push({ title: `フォルダ ${root} / ${kindLabel}(${group.length}件)`, items });
+    }
+  }
+
+  // --- 実行全体: psd と 画像 のページ突合(psdがある時のみ) ---
+  const psdFiles = allFiles.filter(f => f.kind === 'psd');
+  if (psdFiles.length) {
+    const collisions = detectCrossRootCollisions(allFiles); // 複数案件が混在していないか
+    const items = [];
+    if (collisions.length) {
+      // 番号衝突あり = 複数案件が混在している可能性大。突合結果は信頼できないので突合は出さず、警告のみ。
+      const sample = collisions.slice(0, 5)
+        .map(x => `${x.kind === 'psd' ? 'psd' : '画像'}ページ${x.number}`).join(', ');
+      items.push(`複数の入力フォルダで同じページ番号が見つかりました(${sample}${collisions.length > 5 ? ' ほか' : ''})。別案件が混在している可能性があります`);
+      items.push('psd↔画像の突合はページ番号が衝突するため、この結果は当てになりません。正確に確認するには1案件ずつ実行してください');
+    } else {
+      const imageNums = allFiles.filter(f => f.kind === 'image').map(f => extractPageNumber(f.name)).filter(n => n != null);
+      const psdNums = psdFiles.map(f => extractPageNumber(f.name)).filter(n => n != null);
+      const c = comparePsdTif(imageNums, psdNums);
+      if (c.imageCount !== c.psdCount) items.push(`画像 ${c.imageCount} 件 / psd ${c.psdCount} 件 でファイル数が不一致`);
+      if (c.onlyImage.length) items.push(`psd が無いページ: ${c.onlyImage.join(', ')}`);
+      if (c.onlyPsd.length) items.push(`画像が無いページ: ${c.onlyPsd.join(', ')}`);
+      if (items.length) items.push('※ 1案件ずつ実行する前提で、全入力フォルダを横断して集計しています');
+    }
+    if (items.length) warnings.push({ title: 'psd と 画像 の突合(実行全体)', items });
+  }
+
+  return { ok: warnings.length === 0, warnings };
+}
+
+// ---------- Drive のファイル一覧(サーバ api_listFolders)を画像/psd に振り分ける ----------
+function classifyListedFiles(files) {
+  const out = [];
+  for (const f of (files || [])) {
+    if (isSupportedImage(f.name, f.mimeType)) out.push({ ...f, kind: 'image' });
+    else if (isPsdFile(f.name, f.mimeType)) out.push({ ...f, kind: 'psd' }); // psd は寸法解析の対象外。セット整合性チェックにだけ使う
+  }
+  return out;
+}
+
+function isGrayscaleMode(mode) {
+  return mode === 'グレースケール';
+}
+
+// 期待カラーモード(expected: '' / 'グレースケール' / 'カラー')と実測(mode)を照合
+// 戻り値: true=OK, false=NG, null=チェック対象外
+function checkColorMode(expected, mode) {
+  if (!expected) return null; // 指定なし
+  if (!mode || mode === '不明') return false; // 判定できない
+  if (expected === 'グレースケール') return isGrayscaleMode(mode);
+  if (expected === 'カラー') return !isGrayscaleMode(mode);
+  return null;
+}
+
+function chunkArray(items, size) {
+  const out = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+// 1ファイル分の判定。r はサーバの解析結果({ spec } または { error })、s は取引先の条件。
+function judgeImage(file, r, s, expectedText) {
+  const reasons = [];       // NG理由(1つでもあればNG)
+  const notes = [];         // 補足(OK判定は変えない。例: DPI未検証)
+  const extResult = checkExtension(s.ext, file.name); // true/false/null
+  if (extResult === false) reasons.push(`拡張子不一致(期待 ${s.ext} / 実測 ${normExt(fileExt(file.name)) || '不明'})`);
+  const spec = r && r.spec ? r.spec : null;
+  if (spec) {
+    if (checkDimension(s.width, spec.width, s.widthOp) === false) reasons.push(`幅不一致(期待 ${s.width}px ${s.widthOp} / 実測 ${spec.width ?? '不明'}px)`);
+    if (checkDimension(s.height, spec.height, s.heightOp) === false) reasons.push(`高さ不一致(期待 ${s.height}px ${s.heightOp} / 実測 ${spec.height ?? '不明'}px)`);
+    const dpiJudge = judgeDpi(s.dpi, spec.dpiX, spec.dpiY);
+    if (dpiJudge.status === 'ng') reasons.push(dpiJudge.detail);
+    else if (dpiJudge.status === 'unverified') notes.push(dpiJudge.detail);
+    if (checkColorMode(s.color, spec.colorMode) === false) reasons.push(`カラーモード不一致(期待 ${s.color} / 実測 ${spec.colorMode || '不明'})`);
+  } else {
+    reasons.push('解析エラー: ' + ((r && r.error) || '結果を受け取れませんでした'));
+  }
+  return { ok: reasons.length === 0, file, spec, reason: reasons.concat(notes).join(' / '), expected: expectedText };
+}
+
+// ---------- Concurrency-limited runner ----------
+async function runPool(items, worker, concurrency, onProgress) {
+  let i = 0, done = 0;
+  const results = new Array(items.length);
+  async function next() {
+    while (i < items.length) {
+      const idx = i++;
+      try {
+        results[idx] = await worker(items[idx]);
+      } catch (e) {
+        results[idx] = { error: e.message };
+      }
+      done++;
+      onProgress(done, items.length);
+    }
+  }
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, next);
+  await Promise.all(workers);
+  return results;
+}
+
+// ---------- Check execution ----------
+$('runCheckBtn').addEventListener('click', async () => {
+  try {
+    if (!runSpec) throw new Error('上の「取引先を選択」からチェック対象の取引先を選んでください');
+    const s = runSpec;
+
+    const folderLines = $('folderList').value.split('\n').map(s => s.trim()).filter(Boolean);
+    if (!folderLines.length) throw new Error('対象フォルダを1つ以上入力してください');
+    const recursive = $('recursiveCheck').checked;
+
+    $('runCheckBtn').disabled = true;
+    $('csvBtn').disabled = true;
+    $('pdfBtn').disabled = true;
+    checkResults = [];
+    lastAllFiles = [];
+    $('resultBody').innerHTML = '';
+    $('tableWrap').style.display = 'none';
+    $('setCheckBox').style.display = 'none';
+    $('setCheckBox').innerHTML = '';
+    $('summary').textContent = '';
+    setStatus('checkStatus', 'フォルダを走査中...', '');
+
+    const listed = await callServer('api_listFolders', folderLines, recursive);
+    const allFiles = classifyListedFiles(listed.files);
+
+    if (!allFiles.length) {
+      setStatus('checkStatus', '対象となる画像ファイル(tif/tiff/jpg/psd)が見つかりませんでした。', 'error');
+      $('runCheckBtn').disabled = false;
+      return;
+    }
+
+    const imageFiles = allFiles.filter(f => f.kind === 'image'); // 寸法/DPI等の解析対象(psdは除外)
+
+    lastAllFiles = allFiles; // CSV/PDF出力で再利用(セット整合性チェックを含む)
+    $('progressBar').style.display = 'block';
+    setStatus('checkStatus', `0 / ${imageFiles.length} 件処理中...`, '');
+    const expectedText = describeSpec(s);
+    lastRunExpected = expectedText;
+
+    let doneFiles = 0;
+    await runPool(chunkArray(imageFiles, INSPECT_BATCH_SIZE), async (batch) => {
+      let results;
+      try {
+        results = await callServer('api_inspectImages', batch.map(f => ({ id: f.id, name: f.name, size: f.size })));
+      } catch (e) {
+        results = batch.map(() => ({ error: e && e.message ? e.message : String(e) }));
+      }
+      batch.forEach((file, i) => {
+        const row = judgeImage(file, results[i], s, expectedText);
+        checkResults.push(row);
+        appendResultRow(row);
+      });
+      doneFiles += batch.length;
+    }, 3, () => {
+      $('progressBarInner').style.width = Math.round(doneFiles / imageFiles.length * 100) + '%';
+      setStatus('checkStatus', `${doneFiles} / ${imageFiles.length} 件処理中...`, '');
+    });
+
+    const ngCount = checkResults.filter(r => !r.ok).length;
+    setStatus('checkStatus', '完了しました。', 'ok');
+    if (checkResults.length === 0) {
+      // 画像(tif/jpg)が0件。psdのみ等のケース。per-file集計は無いので誤解のない文言にする。
+      const psdCount = allFiles.filter(f => f.kind === 'psd').length;
+      $('summary').textContent = `画像ファイル(tif/jpg)は0件でした${psdCount ? `(psd ${psdCount}件のみ)` : ''}。下のファイルセット整合性チェックのみ実施しました。`;
+    } else {
+      $('summary').textContent = `合計 ${checkResults.length} 件 / NG ${ngCount} 件 / OK ${checkResults.length - ngCount} 件`;
+    }
+    renderSetChecks(allFiles);
+    $('tableWrap').style.display = checkResults.length ? 'block' : 'none';
+    $('csvBtn').disabled = false;
+    $('pdfBtn').disabled = false;
+  } catch (e) {
+    setStatus('checkStatus', 'エラー: ' + e.message, 'error');
+  } finally {
+    $('runCheckBtn').disabled = false;
+  }
+});
+
+function appendResultRow(row) {
+  const tr = document.createElement('tr');
+  if (!row.ok) tr.className = 'ng';
+  const w = row.spec ? (row.spec.width ?? '?') : '?';
+  const h = row.spec ? (row.spec.height ?? '?') : '?';
+  const dpi = row.spec ? `X:${row.spec.dpiX ?? '?'} / Y:${row.spec.dpiY ?? '?'}` : '?';
+  const color = row.spec ? (row.spec.colorMode ?? '?') : '?';
+  const ext = normExt(fileExt(row.file.name)) || '?';
+  tr.innerHTML = `
+    <td class="${row.ok ? 'pass' : 'fail'}">${row.ok ? 'OK' : 'NG'}</td>
+    <td>${escapeHtml(row.file.name)}</td>
+    <td>${escapeHtml(row.file.folder)}</td>
+    <td>${w}</td>
+    <td>${h}</td>
+    <td>${dpi}</td>
+    <td>${escapeHtml(color)}</td>
+    <td>${escapeHtml(ext)}</td>
+    <td>${escapeHtml(row.expected)}</td>
+    <td>${escapeHtml(row.reason)}</td>
+    <td>${row.file.webViewLink ? `<a href="${escapeHtml(row.file.webViewLink)}" target="_blank">開く</a>` : ''}</td>
+  `;
+  $('resultBody').appendChild(tr);
+}
+
+function escapeHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ファイルセット整合性チェックの結果を描画する(重複/連番抜け/最大番号ずれ/psd-画像突合)。
+// これらは1ファイル単位のNGとは別レイヤーの「要確認」警告として表示する。
+function renderSetChecks(allFiles) {
+  const box = $('setCheckBox');
+  const { ok, warnings } = computeSetChecks(allFiles);
+
+  if (ok) {
+    box.innerHTML = `<div style="border:1px solid var(--ok); background:var(--ok-bg,#ecfdf5); color:var(--ok); border-radius:8px; padding:10px 14px; font-size:12.5px;">✅ ファイルセット整合性チェック: 問題は見つかりませんでした(重複・連番抜け・最大番号ずれ・psd/画像の突合)</div>`;
+  } else {
+    const sections = warnings.map(w => `
+      <div style="margin-top:8px;">
+        <div style="font-weight:700; font-size:12.5px;">${escapeHtml(w.title)}</div>
+        <ul style="margin:4px 0 0; padding-left:18px; font-size:12.5px; line-height:1.7;">${w.items.map(i => `<li>${escapeHtml(i)}</li>`).join('')}</ul>
+      </div>`).join('');
+    box.innerHTML = `<div style="border:1px solid var(--ng); background:var(--ng-bg); border-radius:8px; padding:12px 14px; color:var(--text);">
+      <div style="font-weight:700; color:var(--ng); font-size:13px;">⚠ ファイルセット整合性チェック: 要確認</div>
+      ${sections}
+    </div>`;
+  }
+  box.style.display = 'block';
+}
+
+// CSV/PDF共通: 日付(ファイル名・見出し用)
+function todayStamp() { return new Date().toISOString().slice(0, 10); }
+
+// ---------- CSV 出力(per-fileの判定 + ファイルセット整合性チェック) ----------
+$('csvBtn').addEventListener('click', () => {
+  const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const header = ['判定', 'ファイル名', 'フォルダ', '幅(px)', '高さ(px)', 'DPI(X)', 'DPI(Y)', 'カラーモード', '拡張子', '期待値', '詳細'];
+  const lines = [header.join(',')];
+  for (const r of checkResults) {
+    const w = r.spec ? (r.spec.width ?? '') : '';
+    const h = r.spec ? (r.spec.height ?? '') : '';
+    const dx = r.spec ? (r.spec.dpiX ?? '') : '';
+    const dy = r.spec ? (r.spec.dpiY ?? '') : '';
+    const cm = r.spec ? (r.spec.colorMode ?? '') : '';
+    const ex = normExt(fileExt(r.file.name));
+    lines.push([r.ok ? 'OK' : 'NG', r.file.name, r.file.folder, w, h, dx, dy, cm, ex, r.expected, r.reason].map(csvCell).join(','));
+  }
+
+  // ファイルセット整合性チェックも同じCSVに含める(チーム共有時に画面外の情報を落とさない)。
+  const setChecks = computeSetChecks(lastAllFiles);
+  lines.push('');
+  lines.push(csvCell('■ ファイルセット整合性チェック'));
+  if (setChecks.ok) {
+    lines.push(csvCell('問題は見つかりませんでした(重複・連番抜け・最大番号ずれ・psd/画像の突合)'));
+  } else {
+    for (const w of setChecks.warnings) {
+      lines.push(csvCell(w.title));
+      for (const it of w.items) lines.push(',' + csvCell(it));
+    }
+  }
+
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `原稿サイズチェック結果_${todayStamp()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+// ---------- PDF 出力(印刷ダイアログ経由。外部ライブラリ不要) ----------
+$('pdfBtn').addEventListener('click', () => {
+  const esc = escapeHtml;
+  const rowsHtml = checkResults.map(r => {
+    const w = r.spec ? (r.spec.width ?? '?') : '?';
+    const h = r.spec ? (r.spec.height ?? '?') : '?';
+    const dpi = r.spec ? `X:${r.spec.dpiX ?? '?'} / Y:${r.spec.dpiY ?? '?'}` : '?';
+    const color = r.spec ? (r.spec.colorMode ?? '?') : '?';
+    const ext = normExt(fileExt(r.file.name)) || '?';
+    return `<tr class="${r.ok ? '' : 'ng'}">
+      <td class="${r.ok ? 'ok' : 'fail'}">${r.ok ? 'OK' : 'NG'}</td>
+      <td>${esc(r.file.name)}</td><td>${esc(r.file.folder)}</td>
+      <td>${w}</td><td>${h}</td><td>${esc(dpi)}</td><td>${esc(color)}</td><td>${esc(ext)}</td>
+      <td>${esc(r.reason)}</td></tr>`;
+  }).join('');
+
+  const setChecks = computeSetChecks(lastAllFiles);
+  let setHtml;
+  if (setChecks.ok) {
+    setHtml = `<p class="set-ok">✅ 問題は見つかりませんでした(重複・連番抜け・最大番号ずれ・psd/画像の突合)</p>`;
+  } else {
+    setHtml = setChecks.warnings.map(w =>
+      `<div class="set-warn"><div class="set-title">${esc(w.title)}</div><ul>${w.items.map(i => `<li>${esc(i)}</li>`).join('')}</ul></div>`).join('');
+  }
+
+  const ngCount = checkResults.filter(r => !r.ok).length;
+  const summary = checkResults.length
+    ? `合計 ${checkResults.length} 件 / NG ${ngCount} 件 / OK ${checkResults.length - ngCount} 件`
+    : `画像ファイル(tif/jpg)は0件。ファイルセット整合性チェックのみ実施。`;
+
+  const html = `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>原稿サイズチェック結果_${todayStamp()}</title>
+    <style>
+      *{box-sizing:border-box;} body{font-family:-apple-system,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;color:#111;margin:24px;font-size:12px;}
+      h1{font-size:18px;margin:0 0 4px;} .meta{color:#555;font-size:11px;margin-bottom:2px;}
+      .summary{font-weight:700;margin:10px 0;}
+      table{border-collapse:collapse;width:100%;margin-top:6px;} th,td{border:1px solid #bbb;padding:4px 6px;text-align:left;vertical-align:top;word-break:break-word;}
+      th{background:#f0f0f0;} tr.ng{background:#fdecec;} td.ok{color:#0a7a35;font-weight:700;} td.fail{color:#c62828;font-weight:700;}
+      h2{font-size:14px;margin:20px 0 6px;} .set-ok{color:#0a7a35;font-weight:700;}
+      .set-warn{border:1px solid #e0a800;background:#fff9e6;border-radius:6px;padding:8px 10px;margin-top:8px;}
+      .set-title{font-weight:700;margin-bottom:2px;} .set-warn ul{margin:2px 0 0;padding-left:18px;line-height:1.6;}
+      @media print{ body{margin:0;} }
+    </style></head><body>
+    <h1>原稿サイズチェック結果</h1>
+    <div class="meta">出力日: ${todayStamp()}</div>
+    <div class="meta">判定条件: ${esc(lastRunExpected || '(なし)')}</div>
+    <div class="summary">${esc(summary)}</div>
+    ${checkResults.length ? `<table><thead><tr>
+      <th>判定</th><th>ファイル名</th><th>フォルダ</th><th>幅</th><th>高さ</th><th>DPI</th><th>カラー</th><th>拡張子</th><th>詳細</th>
+      </tr></thead><tbody>${rowsHtml}</tbody></table>` : ''}
+    <h2>ファイルセット整合性チェック</h2>
+    ${setHtml}
+    </body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { setStatus('checkStatus', 'ポップアップがブロックされました。ブラウザのポップアップ許可後に再度お試しください。', 'error'); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  // 描画完了後に印刷ダイアログ(「PDFに保存」を選べる)を開く。
+  win.onload = () => { win.focus(); win.print(); };
+});
+
+// 初期表示: ログイン中のアカウント、初回セットアップの結果、お知らせ(起動時は前面に)、マスタの読み込み。
+$('accountEmail').textContent = BOOT.email || '';
+if (BOOT.setup) {
+  const n = document.createElement('div');
+  n.className = 'notice';
+  n.style.cssText = 'font-size:12.5px; background:#fff7ed; border:1px solid #fdba74; color:#7c2d12; border-radius:8px; padding:8px 12px; margin-top:12px;';
+  n.textContent = setupNoticeText(BOOT.setup);
+  $('appMain').before(n);
+}
+renderNews();
+updateNewsBadge();
+showNews();
+maybeOpenUsageGuide();
+loadMasterList();
+</script>
+</body>
+</html>

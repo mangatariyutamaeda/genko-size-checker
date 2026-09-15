@@ -2,8 +2,9 @@
   "name": "genko-size-checker",
   "version": "1.0.0",
   "private": true,
-  "description": "原稿サイズチェッカー(静的HTML)。ロジックの単体テストのみ Node で実行。",
+  "description": "原稿サイズチェッカー。GitHub Pages 版(index.html)と GAS 版(gas/)を並行稼働中。ロジックの単体テストを Node で実行。",
   "scripts": {
-    "test": "node tests/checker.test.mjs"
+    "test": "node tests/checker.test.mjs && npm run test:gas",
+    "test:gas": "node gas/tests/checker.test.mjs && node --test gas/tests/server.test.mjs"
   }
 }
