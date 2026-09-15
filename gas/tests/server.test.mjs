@@ -37,6 +37,7 @@ function load(state = {}) {
       computeAllowedEmailsSyncPlan: (existing, desired) => ({ desired }),
       applyAllowedEmailsSyncPlan: (sheet, plan) => { s.sheetRows = plan.desired; return { added: plan.desired.length, updated: 0, removed: 0, unchanged: 0 }; },
       invalidateAllowedEmailsCache: () => {},
+      saveAllowedEmailsSnapshot: (cfg) => { s.snapshots = (s.snapshots || 0) + 1; s.snapshotStore = !!cfg.propertiesStore; return { saved: true, count: s.sheetRows.length }; },
     },
     SpreadsheetApp: {
       openById: () => {
@@ -286,6 +287,8 @@ test('ensureInitialSetup_: 前田さんが初めて開いたときだけ 同期�
   assert.equal(r.ok, true);
   assert.equal(r.sync.desired, 2);
   assert.equal(ctx.__state.triggers.length, 3);
+  assert.equal(ctx.__state.snapshots, 1, '同期のあと allowedEmails を控える');
+  assert.equal(ctx.__state.snapshotStore, true);
   assert.equal(ctx.ensureInitialSetup_(ADMIN), null);
   assert.equal(load({ email: STAFF, admins: [STAFF] }).ensureInitialSetup_(STAFF), null);
 });

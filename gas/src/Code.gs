@@ -84,7 +84,9 @@ function accessConfig_() {
     spreadsheetId: config.dbSpreadsheetId,
     sheetName: ALLOWED_EMAILS_SHEET,
     adminEmails: config.adminEmails,
-    adminRoleValue: ADMIN_ROLE_VALUE
+    adminRoleValue: ADMIN_ROLE_VALUE,
+    // 同期で控えた allowedEmails で判定する(利用者本人がDBを読めなくてよい＝社外の人にDBを共有しない)
+    propertiesStore: PropertiesService.getScriptProperties()
   };
 }
 

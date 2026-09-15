@@ -1,6 +1,8 @@
 /**
  * PeopleHubSync.gs - 入場権限(allowedEmails)を people-hub から同期する
  * ============================================================
+ * 読み先は mangatari-access-control-lib が決める: 権限管理(mangatari-access-hub)で正本=権限管理なら「有効な権限」、
+ * それ以外は people-hub「ツール利用状況」。同期の最後に allowedEmails を Script Properties に控え、入場判定はその控えで行う。
  * people-hub「ツール利用状況」の ツール名 = TOOL_NAME('gappon-checker') の行を正本として、
  * このツールのDBの allowedEmails タブへ同期する。仕組み(マスタ読み取り・差分計画・シート適用)は
  * mangatari-access-control-lib の PeopleHubSync コアにあり、ここはこのツールの方針だけ持つ
@@ -105,6 +107,8 @@ function syncAllowedEmails() {
   );
   var counts = AccessControl.applyAllowedEmailsSyncPlan(sheet, plan, { writeNameColumn: true });
   AccessControl.invalidateAllowedEmailsCache(accessConfig_());
+  var snapshot = AccessControl.saveAllowedEmailsSnapshot(accessConfig_());
+  if (!snapshot.saved) console.log('allowedEmails を控えられませんでした(シートで判定します): ' + snapshot.reason);
 
   var stat = {
     added: counts.added, updated: counts.updated, removed: counts.removed,
