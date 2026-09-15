@@ -9,6 +9,18 @@
         "libraryId": "1cR3E4SRiEILmtmoH82f_JHrRT77hUWr2TVBrqdieVxJzUgRuVAG8Xp7i",
         "version": "3"
       }
+    ],
+    "enabledAdvancedServices": [
+      {
+        "userSymbol": "Drive",
+        "serviceId": "drive",
+        "version": "v3"
+      },
+      {
+        "userSymbol": "Sheets",
+        "serviceId": "sheets",
+        "version": "v4"
+      }
     ]
   },
   "oauthScopes": [

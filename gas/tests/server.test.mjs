@@ -59,7 +59,7 @@ function load(state = {}) {
         const [a, b] = req.headers.Range.replace('bytes=', '').split('-').map(Number);
         s.rangeCalls.push({ id, start: a, end: b });
         const buf = s.files[id];
-        if (buf === 403) return { getResponseCode: () => 403, getContent: () => [] };
+        if (buf === 403) return { getResponseCode: () => 403, getContent: () => [], getContentText: () => '{"error":{"code":403,"message":"The user does not have sufficient permissions for this file."}}' };
         if (!buf) return { getResponseCode: () => 404, getContent: () => [] };
         if (a >= buf.length) return { getResponseCode: () => 416, getContent: () => [] };
         const part = buf.subarray(a, Math.min(b + 1, buf.length));
@@ -119,6 +119,19 @@ test('appsscript.json: USER_ACCESSING + ANYONE、Driveは読み取り専用ス�
   assert.equal(m.webapp.access, 'ANYONE');
   assert.ok(m.oauthScopes.includes('https://www.googleapis.com/auth/drive.readonly'));
   assert.ok(!m.oauthScopes.includes('https://www.googleapis.com/auth/drive'));
+  // UrlFetch で Drive/Sheets API を呼ぶので、既定のCloudプロジェクトでAPIを有効にするため高度なサービスを入れておく
+  assert.deepEqual(m.dependencies.enabledAdvancedServices.map(x => x.serviceId).sort(), ['drive', 'sheets']);
+});
+
+test('APIが無効(SERVICE_DISABLED)の403は、権限不足ではなく設定の問題として返す', () => {
+  const ctx = load({ email: STAFF, allowed: [STAFF] });
+  const body = { error: { code: 403, status: 'PERMISSION_DENIED', message: 'Google Sheets API has not been used in project 123 before or it is disabled.' } };
+  ctx.__state.responses[ctx.buildSheetsValuesUrl_('1QnYqQA7NpSkhuC5dUL8klBaeTQc2EjYDcACROG3OBRU', 'A:H')] = { status: 403, body };
+  const r = plain(ctx.api_loadMaster());
+  assert.equal(r.ok, false);
+  assert.match(r.detail, /has not been used/);
+  assert.match(ctx.masterWriteErrorMessage_(403, JSON.stringify(body)), /ツール側の設定の問題/);
+  assert.match(ctx.masterWriteErrorMessage_(403, '{"error":{"message":"no access"}}'), /編集する権限がありません.*no access/);
 });
 
 test('doGet: 未登録は拒否画面、登録済みは本画面(マスタURL・Slackチャンネルを渡す)', () => {
@@ -193,7 +206,7 @@ test('画像の解析: 権限なし・壊れたファイル・不正なIDはフ�
     { id: 'truncated_tif_00', name: 'c.tif' }, { id: 'not_image_00000', name: 'd.tif' }, { id: '../x', name: 'e.tif' },
   ]));
   assert.equal(out[0].spec.colorMode, 'グレースケール');
-  assert.match(out[1].error, /HTTP 403/);
+  assert.match(out[1].error, /HTTP 403.*sufficient permissions/);
   assert.match(out[2].error, /途中で切れている/);
   assert.match(out[3].error, /TIFF形式ではありません/);
   assert.match(out[4].error, /不正なファイルID/);

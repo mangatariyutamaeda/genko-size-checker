@@ -186,7 +186,9 @@ function listFolder_(folderId, label, recursive, out, rootKey, depth) {
   var pageToken = '';
   do {
     var res = googleApiGet_(buildDriveListUrl_(folderId, pageToken));
-    if (res.status !== 200) throw new Error('フォルダ一覧取得に失敗しました (HTTP ' + res.status + '): ' + label);
+    if (res.status !== 200) {
+      throw new Error('フォルダ一覧取得に失敗しました (HTTP ' + res.status + '): ' + label + withDetail_(apiErrorDetail_(res.text)));
+    }
     var data = JSON.parse(res.text);
     (data.files || []).forEach(function (f) {
       if (f.mimeType === 'application/vnd.google-apps.folder') {
@@ -238,7 +240,10 @@ function api_inspectImages(files) {
       return buildRangeRequest_(p.state.id, p.start, p.length, token);
     }));
     responses.forEach(function (res, i) {
-      applyRangeResponse_(pending[i].state, pending[i].start, pending[i].length, res.getResponseCode(), res.getContent());
+      var code = res.getResponseCode();
+      var ok = code === 200 || code === 206;
+      applyRangeResponse_(pending[i].state, pending[i].start, pending[i].length, code,
+        ok ? res.getContent() : null, ok || code === 416 ? '' : apiErrorDetail_(res.getContentText()));
     });
     pending = [];
     states.forEach(function (s) {
@@ -264,7 +269,7 @@ function buildRangeRequest_(fileId, start, length, token) {
 }
 
 /** 部分取得の結果を state に反映する(純粋ロジック)。 */
-function applyRangeResponse_(state, start, length, code, content) {
+function applyRangeResponse_(state, start, length, code, content, detail) {
   if (code === 206 || code === 200) {
     var bytes = new Uint8Array(content || []); // GASのバイト配列は -128〜127。Uint8Array に入れると 0〜255 になる
     if (code === 200) { // Range を無視して全体が返ってきた
@@ -277,7 +282,7 @@ function applyRangeResponse_(state, start, length, code, content) {
   } else if (code === 416) { // 開始位置がファイルの外
     state.eof = Math.min(state.eof == null ? start : state.eof, start);
   } else {
-    state.result = { error: 'ファイル取得に失敗 (HTTP ' + code + ')' };
+    state.result = { error: 'ファイル取得に失敗 (HTTP ' + code + ')' + withDetail_(detail) };
   }
 }
 
@@ -460,7 +465,7 @@ function parseJpegSpec_(reader) {
 function api_loadMaster() {
   requireAllowed_();
   var res = googleApiGet_(buildSheetsValuesUrl_(MASTER_SHEET_ID, MASTER_RANGE));
-  if (res.status !== 200) return { ok: false, status: res.status };
+  if (res.status !== 200) return { ok: false, status: res.status, detail: apiErrorDetail_(res.text) };
   return { ok: true, values: JSON.parse(res.text).values || [] };
 }
 
@@ -476,7 +481,7 @@ function api_saveMasterRow(rowValues, rowNumber) {
   } else {
     res = googleApiSend_('post', buildSheetsValuesUrl_(MASTER_SHEET_ID, MASTER_RANGE) + ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS', { values: [values] });
   }
-  if (res.status !== 200) throw new Error(masterWriteErrorMessage_(res.status));
+  if (res.status !== 200) throw new Error(masterWriteErrorMessage_(res.status, res.text));
   return { ok: true };
 }
 
@@ -485,30 +490,30 @@ function api_deleteMasterRow(rowNumber, expectedName) {
   requireAllowed_();
   var n = validMasterRowNumber_(rowNumber);
   var cur = googleApiGet_(buildSheetsValuesUrl_(MASTER_SHEET_ID, 'A' + n));
-  if (cur.status !== 200) throw new Error(masterWriteErrorMessage_(cur.status));
+  if (cur.status !== 200) throw new Error(masterWriteErrorMessage_(cur.status, cur.text));
   var curValues = JSON.parse(cur.text).values || [];
   var curName = curValues[0] && curValues[0][0] != null ? String(curValues[0][0]) : '';
   if (curName !== String(expectedName == null ? '' : expectedName)) {
     throw new Error('マスタが更新されています。「一覧を再読み込み」してから、もう一度削除してください。');
   }
   var meta = googleApiGet_('https://sheets.googleapis.com/v4/spreadsheets/' + MASTER_SHEET_ID + '?fields=sheets.properties.sheetId');
-  if (meta.status !== 200) throw new Error(masterWriteErrorMessage_(meta.status));
+  if (meta.status !== 200) throw new Error(masterWriteErrorMessage_(meta.status, meta.text));
   var sheetId = JSON.parse(meta.text).sheets[0].properties.sheetId;
   var res = googleApiSend_('post', 'https://sheets.googleapis.com/v4/spreadsheets/' + MASTER_SHEET_ID + ':batchUpdate', {
     requests: [{ deleteDimension: { range: { sheetId: sheetId, dimension: 'ROWS', startIndex: n - 1, endIndex: n } } }]
   });
-  if (res.status !== 200) throw new Error(masterWriteErrorMessage_(res.status));
+  if (res.status !== 200) throw new Error(masterWriteErrorMessage_(res.status, res.text));
   return { ok: true };
 }
 
 function ensureMasterHeaderRow_() {
   var res = googleApiGet_(buildSheetsValuesUrl_(MASTER_SHEET_ID, 'A1:H1'));
-  if (res.status !== 200) throw new Error(masterWriteErrorMessage_(res.status));
+  if (res.status !== 200) throw new Error(masterWriteErrorMessage_(res.status, res.text));
   var row = (JSON.parse(res.text).values || [])[0] || [];
   var complete = MASTER_HEADER.every(function (h, i) { return row[i]; });
   if (complete) return;
   var put = googleApiSend_('put', buildSheetsValuesUrl_(MASTER_SHEET_ID, 'A1:H1') + '?valueInputOption=RAW', { values: [MASTER_HEADER] });
-  if (put.status !== 200) throw new Error(masterWriteErrorMessage_(put.status));
+  if (put.status !== 200) throw new Error(masterWriteErrorMessage_(put.status, put.text));
 }
 
 // ============================================================
@@ -571,10 +576,33 @@ function validMasterRowNumber_(rowNumber) {
   return n;
 }
 
-function masterWriteErrorMessage_(status) {
-  if (status === 403) return '取引先マスタを編集する権限がありません(HTTP 403)。管理者にマスタの共有(編集者)を依頼してください。';
-  if (status === 404) return '取引先マスタが見つかりません(HTTP 404)。';
-  return '取引先マスタの読み書きに失敗しました(HTTP ' + status + ')。時間をおいて再度お試しください。';
+function masterWriteErrorMessage_(status, responseText) {
+  var detail = withDetail_(apiErrorDetail_(responseText));
+  if (isApiDisabledDetail_(responseText)) return 'ツール側の設定の問題で取引先マスタを読み書きできません。管理者に連絡してください。' + detail;
+  if (status === 403) return '取引先マスタを編集する権限がありません(HTTP 403)。管理者にマスタの共有(編集者)を依頼してください。' + detail;
+  if (status === 404) return '取引先マスタが見つかりません(HTTP 404)。' + detail;
+  return '取引先マスタの読み書きに失敗しました(HTTP ' + status + ')。時間をおいて再度お試しください。' + detail;
+}
+
+/** Google API のエラー応答(JSON)から、人が読める理由を取り出す(長すぎる分は切る)。 */
+function apiErrorDetail_(responseText) {
+  var text = String(responseText == null ? '' : responseText);
+  if (!text) return '';
+  try {
+    var err = JSON.parse(text).error || {};
+    return String(err.message || err.status || '').slice(0, 300);
+  } catch (e) {
+    return text.slice(0, 200);
+  }
+}
+
+function withDetail_(detail) {
+  return detail ? '(Googleからの応答: ' + detail + ')' : '';
+}
+
+/** API がプロジェクトで有効になっていないときの 403(権限不足ではない)。 */
+function isApiDisabledDetail_(responseText) {
+  return /SERVICE_DISABLED|has not been used in project|is disabled|accessNotConfigured/i.test(String(responseText || ''));
 }
 
 /** テンプレートの <script> に埋め込むJSON。</script> で閉じられないよう < をエスケープする。 */

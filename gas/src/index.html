@@ -130,6 +130,12 @@
 </div>
 
 <div class="view" id="view-master">
+<div class="card" id="adminSyncCard" style="display:none;">
+  <h2>利用者の同期 <span class="badge">管理者のみ</span></h2>
+  <div class="sub" style="margin-bottom:0;">社員情報ハブ「ツール利用状況」の genko-size-checker 行を、このツールの許可リストへ反映します(自動では毎日 8・13・18時)。行を足した直後に使ってください。</div>
+  <button id="adminSyncBtn">許可リストを今すぐ同期</button>
+  <div class="status" id="adminSyncStatus"></div>
+</div>
 <div class="card">
   <h2>取引先マスタ管理</h2>
   <label>登録済み取引先</label>
@@ -468,10 +474,13 @@ const MASTER_HEADER = ['取引先名', '幅px', '高さpx', 'DPI', 'カラーモ
 
 // マスタ読み込み失敗を、チェック画面の分かりやすいボックスで案内する。
 // 403(権限なし)は「管理者に連絡」で対応依頼、その他は再読み込みを促す。
-function showMasterError(statusCode) {
+function showMasterError(statusCode, detail) {
   masterLoadErrorCode = statusCode;
   let msg;
-  if (statusCode === 403) {
+  if (/SERVICE_DISABLED|has not been used in project|is disabled/i.test(detail || '')) {
+    msg = 'ツール側の設定の問題で、取引先マスタを読み込めませんでした(あなたの権限の問題ではありません)。' +
+          '下の「管理者への連絡文をコピー」を押して、Slack の ' + BOOT.slackChannel + ' に貼ってください。';
+  } else if (statusCode === 403) {
     msg = 'あなたのアカウントには、取引先マスタ(データベース)への閲覧権限がありません。' +
           '下の「管理者への連絡文をコピー」を押して、Slack の ' + BOOT.slackChannel + ' に貼ってください。担当者がアクセス権を付与したら「再読み込み」を押してください。';
   } else if (statusCode === 404) {
@@ -483,6 +492,7 @@ function showMasterError(statusCode) {
     msg = `取引先マスタを読み込めませんでした (HTTP ${statusCode})。「再読み込み」をお試しください。` +
           '改善しない場合は「管理者への連絡文をコピー」を押して、Slack の ' + BOOT.slackChannel + ' に貼ってください。';
   }
+  if (detail) msg += '(Googleからの応答: ' + detail + ')';
   $('masterErrorMsg').textContent = msg;
   setStatus('masterErrorStatus', '', '');
   $('masterErrorBox').style.display = '';
@@ -502,7 +512,7 @@ async function loadMasterList() {
     hideMasterError();
     setStatus('masterStatus', '読み込み中...', '');
     const r = await callServer('api_loadMaster');
-    if (!r || !r.ok) { showMasterError(r ? r.status : 0); return; }
+    if (!r || !r.ok) { showMasterError(r ? r.status : 0, r ? r.detail : ''); return; }
     const values = r.values || [];
     masterRows = [];
     // row 1 = header (取引先名/幅px/高さpx/DPI), data starts row 2
@@ -1200,6 +1210,22 @@ if (BOOT.setup) {
   n.style.cssText = 'font-size:12.5px; background:#fff7ed; border:1px solid #fdba74; color:#7c2d12; border-radius:8px; padding:8px 12px; margin-top:12px;';
   n.textContent = setupNoticeText(BOOT.setup);
   $('appMain').before(n);
+}
+if (BOOT.isAdmin) {
+  $('adminSyncCard').style.display = '';
+  $('adminSyncBtn').addEventListener('click', async () => {
+    $('adminSyncBtn').disabled = true;
+    setStatus('adminSyncStatus', '同期中...', '');
+    try {
+      const r = await callServer('syncAllowedEmails');
+      setStatus('adminSyncStatus', r.skipped ? '社員情報ハブに有効な行が無かったため、何も変えていません。'
+        : `同期しました(登録 ${r.desired}人 / 追加 ${r.added}・更新 ${r.updated}・削除 ${r.removed})。`, 'ok');
+    } catch (e) {
+      setStatus('adminSyncStatus', 'エラー: ' + e.message, 'error');
+    } finally {
+      $('adminSyncBtn').disabled = false;
+    }
+  });
 }
 renderNews();
 updateNewsBadge();
