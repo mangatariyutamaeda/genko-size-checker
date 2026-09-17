@@ -29,7 +29,7 @@ Google Drive 上の画像(TIFF/JPEG)の寸法・DPI・カラーモード・拡�
 ## GAS 版の構成（gas/）
 ```
 gas/.clasp.json       scriptId 1iOuhTTw24NDP3x8P4KfBfZ-QSwNNoH7oTfJ11LHzWwReZYmZI8gsKCKr / rootDir src
-gas/src/appsscript.json  USER_ACCESSING + ANYONE / AccessControl @7 / oauthScopes 明示(Driveは drive.readonly)
+gas/src/appsscript.json  USER_ACCESSING + ANYONE / AccessControl @8 / oauthScopes 明示(Driveは drive.readonly)
 gas/src/Config.gs     ツール名・ADMIN_EMAILS・DB(原稿サイズチェッカー DB 1XrbOQtg…)・マスタID・解析の上限値
 gas/src/Code.gs       doGet(入口ゲート) / api_listFolders / api_inspectImages / api_loadMaster・api_saveMasterRow・api_deleteMasterRow
 gas/src/PeopleHubSync.gs  people-hub → allowedEmails 同期、初回セットアップ(ensureInitialSetup_)、トリガー
