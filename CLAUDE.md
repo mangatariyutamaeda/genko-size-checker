@@ -29,7 +29,7 @@ Google Drive 上の画像(TIFF/JPEG)の寸法・DPI・カラーモード・拡�
 ## GAS 版の構成（gas/）
 ```
 gas/.clasp.json       scriptId 1iOuhTTw24NDP3x8P4KfBfZ-QSwNNoH7oTfJ11LHzWwReZYmZI8gsKCKr / rootDir src
-gas/src/appsscript.json  USER_ACCESSING + ANYONE / AccessControl @3 / oauthScopes 明示(Driveは drive.readonly)
+gas/src/appsscript.json  USER_ACCESSING + ANYONE / AccessControl @7 / oauthScopes 明示(Driveは drive.readonly)
 gas/src/Config.gs     ツール名・ADMIN_EMAILS・DB(原稿サイズチェッカー DB 1XrbOQtg…)・マスタID・解析の上限値
 gas/src/Code.gs       doGet(入口ゲート) / api_listFolders / api_inspectImages / api_loadMaster・api_saveMasterRow・api_deleteMasterRow
 gas/src/PeopleHubSync.gs  people-hub → allowedEmails 同期、初回セットアップ(ensureInitialSetup_)、トリガー
@@ -48,3 +48,6 @@ gas/tests/            checker.test.mjs(画面側・index.html から関数抽出
 - GASの画面は iframe の中: リンクは `<base target="_blank">`、コピーは `copyText()`、自分のURLは `BOOT.toolUrl`
 - UI・コメント・コミットメッセージは日本語。利用者はエンジニアではない
 - テスト: `npm test`（旧版134件＋GAS版 画面側・サーバ側）。push・デプロイ前に必ず通す
+
+## 右上（GAS版）
+- 共通部品 `AccessControl.headerKit`（共通ルール 11章。2026-09-18 本番@4）: `headerKitHtml_` が氏名+⚙（ポータルへ・問い合わせ=`SLACK_CHANNEL`・使い方=画面内の使い方ガイドを開く `MgtHeader.onHelp`）を出す。部品が出なかったときだけ「ログイン中: メール」（`#accountFallback`）

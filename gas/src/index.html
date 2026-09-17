@@ -100,7 +100,7 @@
     <div class="sub" style="margin-bottom:0;">Google Drive上の画像(TIFF/JPEG)の寸法(px)・DPI・カラーモード・拡張子を、取引先ごとのマスタ設定と照合します(幅・高さは以上/ちょうど/以下で判定可)。画像は Google Drive 上で先頭部分(寸法・解像度が書かれた部分)だけを読んで判定し、ファイルのダウンロードやアップロードはしません。</div>
     <div class="sub" style="margin-bottom:0;"><a href="https://drive.google.com/drive/folders/1sqqSQp3UWY-JS7FOWel1UgqbFy6zmq6o" target="_blank">📖 コミックシーモアの原稿仕様資料はこちら</a></div>
   </div>
-  <div class="account">ログイン中: <b id="accountEmail" style="color:var(--text);"></b></div>
+  <div class="account"><span id="accountFallback" hidden>ログイン中: <b id="accountEmail" style="color:var(--text);"></b></span><?!= headerKitHtml ?></div>
 </div>
 
 <div id="appMain" style="margin-top:16px;">
@@ -1204,6 +1204,16 @@ $('pdfBtn').addEventListener('click', () => {
 
 // 初期表示: ログイン中のアカウント、初回セットアップの結果、お知らせ(起動時は前面に)、マスタの読み込み。
 $('accountEmail').textContent = BOOT.email || '';
+if (!window.MgtHeader) $('accountFallback').hidden = false; // 右上の共通部品が出なかったときだけ従来の表示
+if (window.MgtHeader) {
+  // 右上⚙の「使い方」: 画面内の使い方ガイドを開いてそこまでスクロールする
+  window.MgtHeader.onHelp(function () {
+    const guide = $('usageGuide');
+    if (!guide) return;
+    guide.open = true;
+    guide.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
 if (BOOT.setup) {
   const n = document.createElement('div');
   n.className = 'notice';

@@ -30,10 +30,12 @@ function doGet(e) {
       '原稿サイズチェッカーは、登録された人だけが使えます。社内の方はツールポータルの「利用を申請」から、社外の方は担当者に、下のメールアドレスを伝えて登録を依頼してください。');
   }
 
+  var admin = isAdmin_(email);
   var template = HtmlService.createTemplateFromFile('index');
+  template.headerKitHtml = headerKitHtml_(email, admin);
   template.bootJson = bootJsonForHtml_({
     email: email,
-    isAdmin: isAdmin_(email),
+    isAdmin: admin,
     toolUrl: toolUrl_(),
     masterSheetUrl: 'https://docs.google.com/spreadsheets/d/' + MASTER_SHEET_ID + '/edit',
     slackChannel: SLACK_CHANNEL,
@@ -43,6 +45,26 @@ function doGet(e) {
   return template.evaluate()
     .setTitle(TOOL_TITLE)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/**
+ * 右上の共通部品(氏名+⚙メニュー。mangatari-access-control-lib の AccessControl.headerKit)。
+ * 作れなければ空文字(画面は従来の「ログイン中: メール」に戻る)。ダーク表示は未対応なので出さない。
+ */
+function headerKitHtml_(email, admin) {
+  try {
+    if (typeof AccessControl === 'undefined' || typeof AccessControl.headerKit !== 'function') return '';
+    return AccessControl.headerKit({
+      toolName: TOOL_TITLE,
+      viewer: AccessControl.getViewer({ email: email, isAdmin: admin, peopleHubSpreadsheetId: PEOPLE_HUB_SPREADSHEET_ID }),
+      portalUrl: PORTAL_URL,
+      toolUrl: toolUrl_(),
+      slackChannel: SLACK_CHANNEL
+    });
+  } catch (err) {
+    console.warn('headerKitHtml_ failed: ' + err);
+    return '';
+  }
 }
 
 function renderDenied_(email, title, message) {
