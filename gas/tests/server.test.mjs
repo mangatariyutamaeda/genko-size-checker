@@ -12,12 +12,13 @@ const SRC = path.join(HERE, '..', 'src');
 const FIXTURES = JSON.parse(fs.readFileSync(path.join(HERE, '..', '..', 'tests', 'fixtures.json'), 'utf8'));
 const ADMIN = 'mangatari.yuta.maeda@gmail.com';
 const STAFF = 'staff@example.com';
+const HEADER_KIT_HTML = '<div class="mgt-hdr">氏名+⚙</div>';
 const DRIVE_MEDIA = /^https:\/\/www\.googleapis\.com\/drive\/v3\/files\/([^?]+)\?alt=media/;
 
 // state: email / allowed / admins / acThrows / files(id→Buffer) / responses(url→{status,body}) / calls
 function load(state = {}) {
   const s = Object.assign({
-    email: '', props: {}, noDbDefault: false, allowed: [], admins: [], acThrows: false,
+    email: '', props: {}, noDbDefault: false, noHeaderKit: false, allowed: [], admins: [], acThrows: false,
     files: {}, responses: {}, calls: [], rangeCalls: [], triggers: [], hubUsers: [], sheetRows: [],
   }, state);
   const respond = (url, opts) => {
@@ -38,6 +39,9 @@ function load(state = {}) {
       applyAllowedEmailsSyncPlan: (sheet, plan) => { s.sheetRows = plan.desired; return { added: plan.desired.length, updated: 0, removed: 0, unchanged: 0 }; },
       invalidateAllowedEmailsCache: () => {},
       saveAllowedEmailsSnapshot: (cfg) => { s.snapshots = (s.snapshots || 0) + 1; s.snapshotStore = !!cfg.propertiesStore; return { saved: true, count: s.sheetRows.length }; },
+      // 右上の共通部品。noHeaderKit: true のときは古いライブラリのつもりで生やさない(headerKitHtml_ は空文字を返すはず)
+      getViewer: (cfg) => { s.viewerConfig = cfg; return { email: cfg.email, displayName: '山田 花子', isAdmin: !!cfg.isAdmin }; },
+      headerKit: (opts) => { s.headerKitOptions = opts; return HEADER_KIT_HTML; },
     },
     SpreadsheetApp: {
       openById: () => {
@@ -73,6 +77,7 @@ function load(state = {}) {
     },
     encodeURIComponent, Uint8Array,
   };
+  if (s.noHeaderKit) delete ctx.AccessControl.headerKit;
   vm.createContext(ctx);
   for (const f of ['Config.gs', 'Code.gs', 'PeopleHubSync.gs']) {
     vm.runInContext(fs.readFileSync(path.join(SRC, f), 'utf8'), ctx, { filename: f });
@@ -145,6 +150,25 @@ test('doGet: 未登録は拒否画面、登録済みは本画面(マスタURL・
   assert.equal(boot.masterSheetUrl, 'https://docs.google.com/spreadsheets/d/1QnYqQA7NpSkhuC5dUL8klBaeTQc2EjYDcACROG3OBRU/edit');
   assert.equal(boot.slackChannel, '#dev_原稿サイズチェッカー');
   assert.equal(boot.setup, null);
+});
+
+test('doGet: 右上の共通部品(headerKit)にツール名・ポータル・自分のURL・Slackを渡す。部品が無ければ空文字', () => {
+  const ctx = load({ email: STAFF, allowed: [STAFF] });
+  assert.equal(ctx.doGet({}).template.headerKitHtml, HEADER_KIT_HTML);
+  const opts = ctx.__state.headerKitOptions;
+  assert.equal(opts.toolName, '原稿サイズチェッカー');
+  assert.equal(opts.portalUrl, ctx.PORTAL_URL);
+  assert.equal(opts.toolUrl, 'https://script.google.com/macros/s/G/exec');
+  // チャンネルIDが分からないので名前で開く(IDが分かったら slackChannelId を足す)
+  assert.equal(opts.slackChannel, '#dev_原稿サイズチェッカー');
+  // 利用者の判定は「このツールが使っている判定関数の結果」をそのまま渡す(ライブラリ側で判定し直さない)
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.__state.viewerConfig)), { email: STAFF, isAdmin: false, peopleHubSpreadsheetId: ctx.PEOPLE_HUB_SPREADSHEET_ID });
+  assert.equal(opts.viewer.email, STAFF);
+  const adminCtx = load({ email: ADMIN });
+  adminCtx.doGet({});
+  assert.equal(adminCtx.__state.viewerConfig.isAdmin, true);
+  // 古いライブラリ(headerKit が無い)でも画面は落とさず、空文字で従来の「ログイン中: メール」に戻す
+  assert.equal(load({ email: STAFF, allowed: [STAFF], noHeaderKit: true }).doGet({}).template.headerKitHtml, '');
 });
 
 test('isAllowed_: fail-closed(DB未設定・ライブラリ例外は拒否)、ADMIN_EMAILS は常に許可', () => {
