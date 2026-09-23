@@ -51,5 +51,5 @@ gas/tests/            checker.test.mjs(画面側・index.html から関数抽出
 
 ## 右上（GAS版）
 - 共通部品 `AccessControl.headerKit`（共通ルール 11章。2026-09-18 本番@6・ライブラリ @9）: `headerKitHtml_` が氏名+⚙（ポータルへ・問い合わせ=`SLACK_CHANNEL`・使い方=画面内の使い方ガイドを開く `MgtHeader.onHelp`・再読み込み）を出す。部品が出なかったときだけ「ログイン中: メール」（`#accountFallback`）
-- 問い合わせは `#dev_原稿サイズチェッカー` の**チャンネルIDが分からない**ので名前のリンク（`app_redirect`。開けないことがある）。IDが分かったら `gas/src/Config.gs` に `SLACK_CHANNEL_ID` を足して `headerKit` に `slackChannelId` を渡す（合本版チェッカーと同じ形）
+- 問い合わせは `#dev_原稿サイズチェッカー`（ID `C0BS10YPM6X`）。**2026-09-23 にメインPCからIDを受け取り、名前リンク（`app_redirect`。開けないことがある）からIDリンクへ切り替えた**: `gas/src/Config.gs` の `SLACK_CHANNEL_ID` を `headerKit` に `slackChannelId` として渡す（合本版チェッカーと同じ形。名前は表示ラベルとして併せて渡す）
 - ⚙の「再読み込み」は部品の既定（`toolUrl` を開き直す）のまま。この画面はURLに指定（`?…`）を取らないので、いまのURLと同じになる

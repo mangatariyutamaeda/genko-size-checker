@@ -29,6 +29,8 @@ var ACCESS_SYNC_HOURS = [8, 13, 18];
 
 var PORTAL_URL = 'https://script.google.com/macros/s/AKfycbyBX06IOv_z0W6qJSg1yTWDh7w1yO6boHg4yj5wBc_sA3D0O4-KzVdf4qaZkMMPHpwxoA/exec';
 var SLACK_CHANNEL = '#dev_原稿サイズチェッカー';
+// 右上⚙の「問い合わせ」はこのIDで開く(名前リンクより確実)。2026-09-23 にメインPCから受領。
+var SLACK_CHANNEL_ID = 'C0BS10YPM6X';
 
 // 取引先マスタ(GitHub Pages 版と同じシートを共有する。並行稼働中はどちらから保存しても同じ内容になる)。
 // 列: A取引先名 B幅px C高さpx D DPI Eカラーモード F幅判定 G高さ判定 H拡張子(先頭のシート)

@@ -59,6 +59,7 @@ function headerKitHtml_(email, admin) {
       viewer: AccessControl.getViewer({ email: email, isAdmin: admin, peopleHubSpreadsheetId: PEOPLE_HUB_SPREADSHEET_ID }),
       portalUrl: PORTAL_URL,
       toolUrl: toolUrl_(),
+      slackChannelId: SLACK_CHANNEL_ID, // リンクはID、表示は名前(両方渡す)
       slackChannel: SLACK_CHANNEL
     });
   } catch (err) {

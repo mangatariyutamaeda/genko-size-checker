@@ -159,7 +159,8 @@ test('doGet: 右上の共通部品(headerKit)にツール名・ポータル・�
   assert.equal(opts.toolName, '原稿サイズチェッカー');
   assert.equal(opts.portalUrl, ctx.PORTAL_URL);
   assert.equal(opts.toolUrl, 'https://script.google.com/macros/s/G/exec');
-  // チャンネルIDが分からないので名前で開く(IDが分かったら slackChannelId を足す)
+  // リンクはチャンネルID、表示は名前(2026-09-23 にIDを受領。名前リンクの app_redirect は開けないことがある)
+  assert.equal(opts.slackChannelId, 'C0BS10YPM6X');
   assert.equal(opts.slackChannel, '#dev_原稿サイズチェッカー');
   // 利用者の判定は「このツールが使っている判定関数の結果」をそのまま渡す(ライブラリ側で判定し直さない)
   assert.deepEqual(JSON.parse(JSON.stringify(ctx.__state.viewerConfig)), { email: STAFF, isAdmin: false, peopleHubSpreadsheetId: ctx.PEOPLE_HUB_SPREADSHEET_ID });
