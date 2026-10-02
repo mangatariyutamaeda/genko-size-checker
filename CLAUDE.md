@@ -29,25 +29,53 @@ Google Drive 上の画像(TIFF/JPEG)の寸法・DPI・カラーモード・拡�
 ## GAS 版の構成（gas/）
 ```
 gas/.clasp.json       scriptId 1iOuhTTw24NDP3x8P4KfBfZ-QSwNNoH7oTfJ11LHzWwReZYmZI8gsKCKr / rootDir src
-gas/src/appsscript.json  USER_ACCESSING + ANYONE / AccessControl @9 / oauthScopes 明示(Driveは drive.readonly)
-gas/src/Config.gs     ツール名・ADMIN_EMAILS・DB(原稿サイズチェッカー DB 1XrbOQtg…)・マスタID・解析の上限値
-gas/src/Code.gs       doGet(入口ゲート) / api_listFolders / api_inspectImages / api_loadMaster・api_saveMasterRow・api_deleteMasterRow
+gas/src/appsscript.json  USER_ACCESSING + ANYONE / AccessControl @13 + BusinessMaster @11 / oauthScopes 明示(Driveは drive.readonly)
+gas/src/Config.gs     ツール名・ADMIN_EMAILS・DB(原稿サイズチェッカー DB 1XrbOQtg…)・マスタID・解析の上限値・自動チェックと通知の設定
+gas/src/Judge.gs      🚩**判定ロジックの正本**。拡張子/寸法/DPI/カラー/ファイルセット整合性・取引先マスタ行→条件
+gas/src/Code.gs       doGet(入口ゲート) / api_listFolders / api_inspectImages / api_setChecks / api_loadMaster・api_saveMasterRow・api_deleteMasterRow
+gas/src/AutoCheck.gs  写植データの自動チェック(毎晩2:00の runAutoCheck)。対象作品の割り出し→差分→判定→記録
+gas/src/Notify.gs     Slack通知(Botトークン)。投稿とメンション解決(people-hub)、作品chの解決(business-hub)
 gas/src/PeopleHubSync.gs  people-hub → allowedEmails 同期、初回セットアップ(ensureInitialSetup_)、トリガー
-gas/src/index.html    画面。判定・整合性チェック・CSV/PDF はブラウザ側
-gas/tests/            checker.test.mjs(画面側・index.html から関数抽出) / server.test.mjs(サーバ側・vm+モック)
+gas/src/index.html    画面。表示・CSV/PDF。判定はサーバ(api_inspectImages / api_setChecks)に頼む
+gas/tests/            judge.test.mjs(判定の正本) / checker.test.mjs(画面側・index.html から関数抽出)
+                      server.test.mjs(サーバ側・vm+モック) / autocheck.test.mjs(自動チェック・通しの結合テストあり)
 ```
 - デプロイ: `npm test` → `cd gas && npx @google/clasp@3 push -f && npx @google/clasp@3 deploy -i AKfycbyriLDw7s9N2ND-xkuWMealmPQu-K-8SnXD3wNIYXqpeaNdpNTTrCvEhPJLPmNHQbM-9A -d "..."`（引数なしの deploy はURLが変わるので使わない）
-- `mangatari-access-control-lib/release.sh` の CONSUMERS に `genko-size-checker/gas` を追加済み
+- `mangatari-access-control-lib/release.sh` と `mangatari-business-master-lib/release.sh` の CONSUMERS に `genko-size-checker/gas` を追加済み（ライブラリ更新がここにも配られる）
 - DBスプレッドシートは `clasp create --type sheets --parentId` で作ったので、中に空のコンテナバインドスクリプトが付いている（害は無い）
 
+## 写植データの自動チェック（2026-10-02〜）
+コミックシーモアの連載中作品の写植フォルダを毎晩見て、**新しく上がった話だけ**をチェックして Slack に出す。
+
+| | |
+|---|---|
+| 動く時間 | 毎晩 **2:00**（`AUTO_CHECK_HOUR`）。**写植をやっている中国側の稼働が 7:00-21:00** なので、アップロード中に走って「欠番だらけ」の誤報を出す心配が実質ない（前田さん 2026-10-02） |
+| 対象作品 | business-hub 作品タブの 取引先コード `0007` ＋ 案件ステータス（=作家作品リストG列「連載状況」）の先頭番号が **90未満**（90=制作中止 / 97〜99=完結を外す）＋ 作品DriveフォルダIDがある行 |
+| たどる道 | `{作品フォルダ}/430_写植/200_写植依頼→完成ファイル/{N話}/(TIF)/画像` |
+| 判定条件 | 取引先マスタの「コミックシーモア（NTTソルマーレ）」行（5186×7323 / 600dpi / グレースケール / tiff） |
+| 通知先 | 集約: `#auto_tool_direction_top_cmoa_写植データ自動チェック`（**まんがたりWS** `C0C61H6UQ11`）に1晩1投稿。<br>エラーのみ: その作品の用途『編集ディレクター』ch（`_002編集ディレクター用`・**ネットマンガラボWS**・社内だけ）にも1投稿 |
+| メンション | 作家作品リストの **ディレクター / 編集者 / アサイン責任者**（前田さん2026-10-02「社員は全員」）。氏名→メンバーIDは `AccessControl.buildPeopleHubSlackDirectory` |
+| 手で動かす | GASエディタで `dryRunAutoCheck`（通知なし）/ `runAutoCheckNow`（通知あり）/ `installAutoCheckTrigger`（トリガー設置）。いずれも管理者のみ |
+
+- 🚩**増えた話は「中身の署名」で見つける。フォルダの `modifiedTime` は使えない**。Drive は子の追加で親フォルダの更新日時を変えない（`10_お客様とのやり取り用` は毎日動いているのに 2020年のまま。2026-10-02 実測）。話フォルダの中身を list して「件数＋ファイルID/名前/サイズのハッシュ」を DB と比べる
+- 見に行くのは**新しい方から4話だけ**（`AUTO_CHECK_RECENT_CHAPTERS`）＋前回NGのままの話。写植は話の順に上がるので、作品が増えても1晩のAPI呼び出しが増え続けない。直すと次の晩に ✅ が出る
+- 🚩**初回かどうかは「作品の登録」(`autoCheckTitles` タブ)で見る。話の行の有無で見てはいけない**。写植フォルダがまだ無い作品の「はじめての1話」まで既読にしてしまい、連載開始を取りこぼす（`autocheck.test.mjs` の通しテストが見張っている）
+- **動きが無い晩は投稿しない。** 動いた事実はハートビート（CI状態シート）と `autoCheckLog` に残る。直っていないNGは「動きがあった晩」の投稿の末尾に添えるだけで、毎晩は鳴らさない
+- 🚩**メンションのメンバーIDはワークスペースごとに別物。** 集約ch（まんがたり）は `Slack（まんがたり）`、作品ch（ネットマンガラボ）は `Slack（ネットマンガラボ）` の アカウント識別子を引く。投稿先と辞書が食い違うと「@unknown」になって誰にも届かない
+- 辞書に無い人（社外のディレクター等）は `名前(Slack未解決)` と出す。**メンションが引けなくても通知自体は止めない**
+- DBのタブ: `autoCheckTitles`（見ている作品・写植フォルダIDの控え）/ `autoCheckState`（話ごとの既読状態と結果）/ `autoCheckLog`（実行の記録・5000行で古い方を切る）
+- トークンは Script Properties: `SLACK_BOT_TOKEN_MANGATARI`（必須。Bot は `all_tools_access`）/ `SLACK_BOT_TOKEN_NETMANGALABO`（無ければ作品chへの投稿だけ黙ってスキップ）
+- **OAuthスコープは増やしていない**（Drive読み取り・スプレッドシート・外部通信・トリガー・メールで足りる）。増やすと利用者全員に再認可が発生する
+
 ## ルール
+- 🚩**判定ロジックの正本は `gas/src/Judge.gs` の1か所だけ。** 画面にもサーバにも写しを置かない（2026-10-02 に index.html から移設。画面は `api_inspectImages(files, spec)` と `api_setChecks(files)` を呼ぶ）。`checker.test.mjs` が「画面に写しが無いこと」を見張っている。※ GitHub Pages 版（旧）の `index.html` は別物として残っている
 - 画面側ロジックは `function 名前(...)` で書く（テストが関数名で抽出する）。メインの `<script>` は `<script>\n'use strict';` で始める
 - **末尾「_」の無いサーバ関数は google.script.run から誰でも呼べる。** 画面用APIは冒頭で `requireAllowed_()`、管理用は `requireAdmin_()`
 - Drive/スプレッドシートに触るのはサーバ側だけ。ユーザー入力のIDは正規表現で検証してからURLに入れる（Driveの検索クエリに混ぜない）
 - GAS の `getContent()` は -128〜127 のバイト配列。`new Uint8Array(...)` に入れて 0〜255 にしてから読む
 - GASの画面は iframe の中: リンクは `<base target="_blank">`、コピーは `copyText()`、自分のURLは `BOOT.toolUrl`
 - UI・コメント・コミットメッセージは日本語。利用者はエンジニアではない
-- テスト: `npm test`（旧版134件＋GAS版 画面側・サーバ側）。push・デプロイ前に必ず通す
+- テスト: `npm test`（旧版134件＋GAS版 判定88件・画面側45件＋サーバ/自動チェック53件）。push・デプロイ前に必ず通す
 
 ## 右上（GAS版）
 - 共通部品 `AccessControl.headerKit`（共通ルール 11章。2026-09-18 本番@6・ライブラリ @9）: `headerKitHtml_` が氏名+⚙（ポータルへ・問い合わせ=`SLACK_CHANNEL`・使い方=画面内の使い方ガイドを開く `MgtHeader.onHelp`・再読み込み）を出す。部品が出なかったときだけ「ログイン中: メール」（`#accountFallback`）

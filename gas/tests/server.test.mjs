@@ -79,7 +79,8 @@ function load(state = {}) {
   };
   if (s.noHeaderKit) delete ctx.AccessControl.headerKit;
   vm.createContext(ctx);
-  for (const f of ['Config.gs', 'Code.gs', 'PeopleHubSync.gs']) {
+  // Judge.gs も読む(Code.gs の api_listFolders/api_inspectImages が判定ロジックを使う)
+  for (const f of ['Config.gs', 'Judge.gs', 'Code.gs', 'PeopleHubSync.gs']) {
     vm.runInContext(fs.readFileSync(path.join(SRC, f), 'utf8'), ctx, { filename: f });
   }
   if (s.noDbDefault) ctx.DB_SPREADSHEET_ID_DEFAULT = '';

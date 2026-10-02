@@ -192,7 +192,7 @@ function googleApiSend_(method, url, body) {
  * フォルダ(URLまたはIDを1行ずつ)の中のファイルを返す。フォルダ自体は返さない。
  * 返り値: { ok: true, files: [{ id, name, mimeType, size, webViewLink, folder, root }] }
  *   folder = 表示用のフォルダ名(入力フォルダのID / サブフォルダ名…)、root = 入力フォルダのID(集計キー)
- * 画像かpsdかの振り分けは画面側(isSupportedImage / isPsdFile)で行う。
+ * 画像かpsdかの振り分け(kind)も返す。振り分けの正本は Judge.gs の fileKind_。
  */
 function api_listFolders(lines, recursive) {
   requireAllowed_();
@@ -226,7 +226,9 @@ function listFolder_(folderId, label, recursive, out, rootKey, depth) {
       out.push({
         id: f.id, name: f.name, mimeType: f.mimeType,
         size: f.size != null ? Number(f.size) : null,
-        webViewLink: f.webViewLink || '', folder: label, root: rootKey
+        webViewLink: f.webViewLink || '', folder: label, root: rootKey,
+        // 'image'(寸法解析の対象) / 'psd'(セット整合性だけ) / ''(対象外)。振り分けは Judge.gs が正本
+        kind: fileKind_(f.name, f.mimeType)
       });
     });
     pageToken = data.nextPageToken || '';
@@ -245,8 +247,29 @@ function listFolder_(folderId, label, recursive, out, rootKey, depth) {
  * 解析に足りない位置(TIFFのIFDがファイル末尾にある、JPEGの前置きが長い等)があれば、
  * その位置だけを並列に読み足して解析し直す(最大 INSPECT_MAX_ROUNDS 回)。
  */
-function api_inspectImages(files) {
+function api_inspectImages(files, spec) {
   requireAllowed_();
+  var results = inspectImagesCore_(files);
+  if (!spec) return results;
+  // 条件が渡されたら判定まで返す。判定の正本は Judge.gs の1か所だけ(画面も自動チェックもここを通る)。
+  var expected = describeSpec_(spec);
+  return results.map(function (r, i) {
+    var file = { name: String(((files || [])[i] || {}).name || '') };
+    r.judge = judgeImage_(file, r, spec, expected);
+    return r;
+  });
+}
+
+/** ファイルセット整合性チェック(重複・欠番・最大番号ずれ・psd突合)。画面から呼ぶ。 */
+function api_setChecks(files) {
+  requireAllowed_();
+  return computeSetChecks_((files || []).map(function (f) {
+    return { name: String((f && f.name) || ''), kind: String((f && f.kind) || ''), root: String((f && f.root) || '') };
+  }));
+}
+
+/** 解析の本体(入場チェックなし)。api_inspectImages と自動チェック(AutoCheck.gs)が共用する。 */
+function inspectImagesCore_(files) {
   var token = ScriptApp.getOAuthToken();
   var states = (files || []).slice(0, INSPECT_BATCH_MAX).map(function (f) {
     var id = String((f && f.id) || '');

@@ -140,7 +140,7 @@ function setupAccessSheet() {
 function dbMissingMessage_() {
   return 'このツールのDBスプレッドシートがまだ設定されていません。\n' +
     '1) Driveの共有フォルダ「' + TOOLS_FOLDER_NAME + '」(' + TOOLS_FOLDER_ID + ') の中にスプレッドシートを1つ作る\n' +
-    '   (名前は「合本版チェッカー DB」など)\n' +
+    '   (名前は「原稿サイズチェッカー DB」など)\n' +
     '2) そのIDを スクリプトプロパティ DB_SPREADSHEET_ID に設定する\n' +
     '3) もう一度この関数を実行する\n' +
     '※ マイドライブ直下に作ると前田さん以外が読めず、全員が入れなくなります。';
