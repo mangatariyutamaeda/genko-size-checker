@@ -52,10 +52,14 @@ function runAutoCheckNow() {
   return autoCheckMain_({ notify: true });
 }
 
-/** 通知せずに結果だけ見る(動作確認用)。管理者のみ。 */
+/**
+ * 動作確認用。**通知もせず、DBにも何も残さない**(何度やっても状態が変わらない)。
+ * 🚩記録しないのが大事: 記録してしまうと「チェック済みなのに誰にも通知されていない話」ができる。
+ * 初回登録(いまある話を既読にする)をやりたいときは runAutoCheckNow を使う(初回は通知が出ない)。
+ */
 function dryRunAutoCheck() {
   requireAdmin_();
-  return autoCheckMain_({ notify: false });
+  return autoCheckMain_({ notify: false, persist: false });
 }
 
 /** 毎晩 AUTO_CHECK_HOUR 時のトリガーを設置(重複設置しない)。管理者のみ。 */
@@ -88,6 +92,7 @@ function removeAutoCheckTriggers_() {
  */
 function autoCheckMain_(options) {
   var notify = !options || options.notify !== false;
+  var persist = !options || options.persist !== false;   // false = 下見だけ(DBを書き換えない)
   var deadline = Date.now() + AUTO_CHECK_DEADLINE_MS;
 
   var spec = loadAutoCheckSpec_();
@@ -150,9 +155,11 @@ function autoCheckMain_(options) {
     skipped.push('ほか ' + deferred + '作品は上限(' + AUTO_CHECK_MAX_CHAPTERS_PER_RUN + '話/回)か時間の都合で翌晩に回しました');
   }
 
-  saveAutoCheckState_(state);
-  saveAutoCheckTitles_(titles);
-  appendAutoCheckLog_(results);
+  if (persist) {
+    saveAutoCheckState_(state);
+    saveAutoCheckTitles_(titles);
+    appendAutoCheckLog_(results);
+  }
 
   // 投稿するのは「動きがあった晩」だけ(チェックした話がある / 見に行けなかった作品がある)。
   // 何も無い晩は黙る。動いた事実はハートビート(CI状態シート)とログに残るので、
@@ -164,6 +171,7 @@ function autoCheckMain_(options) {
   var stat = {
     targets: targets.length,
     checked: results.length,
+    persisted: persist,
     ok: results.filter(function (r) { return r.ok; }).length,
     ng: results.filter(function (r) { return !r.ok; }).length,
     baseline: baseline,

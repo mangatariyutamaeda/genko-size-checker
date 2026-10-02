@@ -628,3 +628,23 @@ test('通し: 話フォルダ直下に画像がある作品(TIFサブフォル�
   assert.equal(state.rows[0].chapter, 2, '「第2話」を2話として読む');
   assert.equal(state.rows[0].fileCount, 1);
 });
+
+test('通し: dryRun(persist:false)はDBを書き換えない。何度やっても同じ結果が出る', () => {
+  const tree = JSON.parse(JSON.stringify(TREE_ONE_CHAPTER));
+  const c = loadWired({ tree, titles: TITLES_ONE, files: { fileOK000001: OK_TIFF, fileNG000002: NARROW_TIFF } });
+
+  const dry1 = plain(c.autoCheckMain_({ notify: false, persist: false }));
+  assert.equal(dry1.persisted, false);
+  assert.equal(c.loadAutoCheckState_().rows.length, 0, '既読状態を残さない');
+  assert.equal(c.loadAutoCheckTitles_().rows.length, 0, '作品も登録しない');
+
+  // 2回目も「初回」のまま＝下見を何度やっても本番の初回登録を食わない
+  const dry2 = plain(c.autoCheckMain_({ notify: false, persist: false }));
+  deepEq(dry2.baseline, dry1.baseline);
+  assert.equal(c.__state.posts.length, 0);
+
+  // 本番(通知あり)を走らせて初めて記録される
+  c.autoCheckMain_({ notify: true });
+  assert.equal(c.loadAutoCheckTitles_().rows.length, 1);
+  assert.ok(c.loadAutoCheckState_().rows.length > 0);
+});
