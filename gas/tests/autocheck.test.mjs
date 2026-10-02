@@ -648,3 +648,72 @@ test('通し: dryRun(persist:false)はDBを書き換えない。何度やって�
   assert.equal(c.loadAutoCheckTitles_().rows.length, 1);
   assert.ok(c.loadAutoCheckState_().rows.length > 0);
 });
+
+// ============================================================
+// 隣のPSDフォルダ / 回る順
+// ============================================================
+test('orderTargetsByStaleness_: 一度も見ていない作品が先、次に最後に見たのが古い順', () => {
+  const c = load();
+  const targets = [
+    { no: '0007-0001' }, { no: '0007-0002' }, { no: '0007-0003' }, { no: '0007-0004' },
+  ];
+  const titles = { byNo: {
+    '0007-0001': { seenAt: '2026-10-03 02:00' },
+    '0007-0002': { seenAt: '2026-10-01 02:00' },
+    '0007-0004': { seenAt: '2026-10-03 02:00' },
+  } };
+  deepEq(c.orderTargetsByStaleness_(targets, titles).map(t => t.no),
+    ['0007-0003', '0007-0002', '0007-0001', '0007-0004'],
+    '未登録 → 古い → 同着は作品No順');
+});
+
+test('通し: psd は TIF の隣の PSD フォルダから読み、psdが無いページを拾う', () => {
+  const tree = {
+    WORK4: { folders: [{ id: 'SH4', name: '430_写植' }], files: [] },
+    SH4: { folders: [{ id: 'SRC4', name: '200_写植依頼→完成ファイル' }], files: [] },
+    SRC4: { folders: [{ id: 'CH4', name: '008話' }], files: [] },
+    // 実物と同じ並び: 話フォルダの直下に TIF / PDF / PSD
+    CH4: { folders: [{ id: 'TIF4', name: 'TIF' }, { id: 'PDF4', name: 'PDF' }, { id: 'PSD4', name: 'PSD' }], files: [] },
+    TIF4: { folders: [], files: [
+      { id: 'fileOK000011', name: '008_001.tif', mimeType: 'image/tiff', size: String(OK_TIFF.length) },
+      { id: 'fileOK000012', name: '008_002.tif', mimeType: 'image/tiff', size: String(OK_TIFF.length) },
+    ] },
+    PSD4: { folders: [], files: [{ id: 'psd000000001', name: '008_001.psd', mimeType: 'image/vnd.adobe.photoshop', size: '10' }] },
+  };
+  const titles = [{ no: '0007-0055', formalName: 'psdあり作品', workStatus: '４．連載中（継続）', driveFolderId: 'WORK4' }];
+  const FILES4 = { fileOK000011: OK_TIFF, fileOK000012: OK_TIFF };
+  const c = loadWired({ tree, titles, files: FILES4 });
+
+  c.autoCheckMain_({ notify: true });            // 初回登録
+  c.__state.now = '2026-10-05 02:00';
+  tree.TIF4.files.push({ id: 'fileOK000013', name: '008_003.tif', mimeType: 'image/tiff', size: String(OK_TIFF.length) });
+  FILES4.fileOK000013 = OK_TIFF;
+  const stat = plain(c.autoCheckMain_({ notify: true }));
+
+  assert.equal(stat.checked, 1);
+  const text = c.__state.posts[0].payload.text;
+  assert.match(text, /0007-0055 psdあり作品 8話/, '008話を8話として読む');
+  assert.match(text, /psd が無いページ: 2, 3/, 'TIFの隣のPSDを見て突合している');
+  assert.match(text, /画像 3 件 \/ psd 1 件 でファイル数が不一致/);
+});
+
+test('通し: PSDフォルダが無い作品でも落ちない(突合が出ないだけ)', () => {
+  const tree = {
+    WORK5: { folders: [{ id: 'SH5', name: '430_写植' }], files: [] },
+    SH5: { folders: [{ id: 'SRC5', name: '200_写植依頼→完成ファイル' }], files: [] },
+    SRC5: { folders: [{ id: 'CH5', name: '1話' }], files: [] },
+    CH5: { folders: [{ id: 'TIF5', name: 'TIF' }], files: [] },
+    TIF5: { folders: [], files: [{ id: 'fileOK000021', name: 'p001.tif', mimeType: 'image/tiff', size: String(OK_TIFF.length) }] },
+  };
+  const titles = [{ no: '0007-0066', formalName: 'psd無し作品', workStatus: '４．連載中（継続）', driveFolderId: 'WORK5' }];
+  const FILES5 = { fileOK000021: OK_TIFF };
+  const c = loadWired({ tree, titles, files: FILES5 });
+  c.autoCheckMain_({ notify: true });
+  c.__state.now = '2026-10-05 02:00';
+  tree.TIF5.files.push({ id: 'fileOK000022', name: 'p002.tif', mimeType: 'image/tiff', size: String(OK_TIFF.length) });
+  FILES5.fileOK000022 = OK_TIFF;
+  const stat = plain(c.autoCheckMain_({ notify: true }));
+  assert.equal(stat.checked, 1);
+  assert.equal(stat.ng, 0);
+  assert.match(c.__state.posts[0].payload.text, /✅ 0007-0066 psd無し作品 1話 — 画像2件 すべてOK/);
+});

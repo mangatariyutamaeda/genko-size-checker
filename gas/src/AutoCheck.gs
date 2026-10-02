@@ -96,9 +96,11 @@ function autoCheckMain_(options) {
   var deadline = Date.now() + AUTO_CHECK_DEADLINE_MS;
 
   var spec = loadAutoCheckSpec_();
-  var targets = collectTargets_();
   var state = loadAutoCheckState_();
   var titles = loadAutoCheckTitles_();
+  // 🚩「最後に見た時刻が古い順」に回る。作品No順のままだと、時間切れのたびに**毎回同じ作品**が
+  //   後回しになって永久に見てもらえない。前の晩に回せなかった作品が次の晩は先頭に来る。
+  var targets = orderTargetsByStaleness_(collectTargets_(), titles);
   var results = [];
   var baseline = 0;
   var skipped = [];
@@ -214,6 +216,19 @@ function collectTargets_() {
 }
 
 /**
+ * 見に行く順を「最後に見た時刻が古い順」にする(純粋関数)。一度も見ていない作品が先。
+ * 同着は作品No順(毎晩の並びが安定して、ログを追いやすい)。
+ */
+function orderTargetsByStaleness_(targets, titles) {
+  return (targets || []).slice().sort(function (a, b) {
+    var sa = (titles.byNo[a.no] && titles.byNo[a.no].seenAt) || '';
+    var sb = (titles.byNo[b.no] && titles.byNo[b.no].seenAt) || '';
+    if (sa !== sb) return sa < sb ? -1 : 1;
+    return a.no < b.no ? -1 : (a.no > b.no ? 1 : 0);
+  });
+}
+
+/**
  * 案件ステータスが対象か。先頭の番号だけで見る(番号の後ろの表現は変わるため)。
  * 全角数字が使われているので半角に直してから見る。90=制作中止 / 97〜99=完結 は対象外。
  * 番号が読めない行は対象に含める(連載中の取りこぼしを作らない)。
@@ -284,7 +299,7 @@ function findChangedChapters_(title, resolved, state) {
     chapters.push({
       titleNo: title.no, titleName: title.name,
       number: folder.number, folderName: folder.name,
-      folderId: folder.id, imageFolderId: imageFolder.id,
+      folderId: folder.id, imageFolderId: imageFolder.id, psdFolderId: imageFolder.psdFolderId,
       files: files, signature: signature
     });
   }
@@ -307,14 +322,39 @@ function pickCandidateChapters_(sortedDesc, state, recent) {
   return picked;
 }
 
-/** 話フォルダの中の TIF サブフォルダ(あれば)。無ければ話フォルダ直下を画像の置き場とみなす。 */
+/**
+ * 話フォルダの中の TIF サブフォルダ(あれば)。無ければ話フォルダ直下を画像の置き場とみなす。
+ * psd は TIF の**隣**の PSD フォルダにあるので、その場所だけ覚えて返す
+ * (中身を読むのは実際にチェックする話だけ。毎晩の list を増やさないため)。
+ */
 function pickImageFolder_(folder) {
   var children = driveChildren_(folder.id);
-  var tif = children.folders.filter(function (f) {
-    return normalizeFolderLabel_(f.name) === normalizeFolderLabel_(SHASHOKU_IMAGE_SUBFOLDER);
-  })[0];
-  if (!tif) return { id: folder.id, files: children.files };
-  return { id: tif.id, files: driveChildren_(tif.id).files };
+  function pick(name) {
+    return children.folders.filter(function (f) {
+      return normalizeFolderLabel_(f.name) === normalizeFolderLabel_(name);
+    })[0] || null;
+  }
+  var tif = pick(SHASHOKU_IMAGE_SUBFOLDER);
+  var psd = pick(SHASHOKU_PSD_SUBFOLDER);
+  var psdFolderId = psd ? psd.id : '';
+  if (!tif) return { id: folder.id, files: children.files, psdFolderId: psdFolderId };
+  return { id: tif.id, files: driveChildren_(tif.id).files, psdFolderId: psdFolderId };
+}
+
+/**
+ * 隣の PSD フォルダの psd を読む(チェックする話だけ)。読めなくても空で続ける
+ * (psd突合が出ないだけで、寸法などのチェックは成り立つ)。
+ */
+function readPsdSiblings_(chapter) {
+  if (!chapter.psdFolderId) return [];
+  try {
+    return driveChildren_(chapter.psdFolderId).files
+      .filter(function (f) { return fileKind_(f.name, f.mimeType) === 'psd'; })
+      .map(function (f) { return { name: f.name, kind: 'psd' }; });
+  } catch (err) {
+    console.log('readPsdSiblings_: PSDフォルダを読めませんでした(' + chapter.titleNo + ' ' + chapter.number + '話): ' + errMessage_(err));
+    return [];
+  }
 }
 
 /** 1話をチェックする。画像の解析(部分取得)→判定→ファイルセット整合性。 */
@@ -349,9 +389,13 @@ function checkChapter_(title, chapter, spec) {
     });
   }
 
-  var setChecks = computeSetChecks_(chapter.files.map(function (f) {
+  // ファイルセット整合性は「TIFの画像 ＋ 隣のPSDフォルダのpsd」で見る(psdが無いページを拾うため)
+  var setFiles = chapter.files.map(function (f) {
     return { name: f.name, kind: f.kind, root: chapter.folderName };
+  }).concat(readPsdSiblings_(chapter).map(function (f) {
+    return { name: f.name, kind: 'psd', root: chapter.folderName };
   }));
+  var setChecks = computeSetChecks_(setFiles);
   var lines = summarizeNg_(rows, setChecks, AUTO_CHECK_MAX_NG_LINES);
   var ngCount = rows.filter(function (r) { return !r.ok; }).length;
 
@@ -636,6 +680,11 @@ function notifyAutoCheck_(results, state, targetCount, skipped) {
   }
   var dir = mentionDirectory_(NOTIFY_SLACK_TOOL_NAME);
   var stamp = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'MM/dd HH:mm');
+  // 見に行く順は「古い順」だが、読む人のために投稿は作品No順・話順に並べ直す
+  results = (results || []).slice().sort(function (a, b) {
+    if (a.titleNo !== b.titleNo) return a.titleNo < b.titleNo ? -1 : 1;
+    return a.chapter - b.chapter;
+  });
   var text = buildRunMessage_(results, {
     stamp: stamp,
     targetCount: targetCount,
