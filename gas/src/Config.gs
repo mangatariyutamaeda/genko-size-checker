@@ -93,8 +93,13 @@ var AUTO_CHECK_TITLES_HEADER = ['作品No', '作品名', '写植完成フォル�
 var AUTO_CHECK_STATE_SHEET = 'autoCheckState';
 var AUTO_CHECK_STATE_HEADER = ['作品No', '作品名', '話', '話フォルダID', '署名', 'ファイル数', '最終チェック', '結果', 'NG件数'];
 var AUTO_CHECK_LOG_SHEET = 'autoCheckLog';
-var AUTO_CHECK_LOG_HEADER = ['日時', '作品No', '作品名', '話', 'ファイル数', '結果', 'NG件数', '内容', '通知先'];
+var AUTO_CHECK_LOG_HEADER = ['日時', '作品No', '作品名', '話', 'ファイル数', '結果', 'NG件数', '内容', 'フォルダ', '通知先'];
 var AUTO_CHECK_LOG_MAX_ROWS = 5000;
+// 画面の「自動チェック」タブに出す最近の結果の件数。
+var AUTO_CHECK_VIEW_LOG_ROWS = 200;
+// 最後に動いた記録(スクリプトプロパティ)。新しい話が無くて Slack が無音の晩でも
+// 画面に「ちゃんと動いている」と出せるようにするため。
+var AUTO_CHECK_LAST_RUN_PROP = 'AUTO_CHECK_LAST_RUN';
 
 // ============================================================
 // Slack通知(Notify.gs)
@@ -102,9 +107,17 @@ var AUTO_CHECK_LOG_MAX_ROWS = 5000;
 // 集約チャンネル(まんがたりWS。2026-10-02作成)。命名は既存の auto_tool_direction_top_… に合わせた。
 var NOTIFY_CHANNEL_ID = 'C0C61H6UQ11';
 var NOTIFY_CHANNEL_NAME = '#auto_tool_direction_top_cmoa_写植データ自動チェック';
+var NOTIFY_CHANNEL_URL = 'https://mangatari.slack.com/archives/C0C61H6UQ11';
 // 集約チャンネルのワークスペース。メンションのメンバーIDはワークスペースごとに別物なので、
 // 投稿先とメンション辞書(people-hub のツール名)は必ず揃える。
 var NOTIFY_TOKEN_PROP = 'SLACK_BOT_TOKEN_MANGATARI';
+
+// 投稿者の見た目(chat:write.customize)。全社Bot `all_tools_access` 1本に寄せると
+// 投稿者が全部 all_tools_access になり、どのツールの通知か見分けられない。
+// Incoming Webhook 時代はアプリごとに名前を持てていたので、その埋め戻し。
+// 決め方の正本は mangatari-portal `src/SlackNotify.gs`（ツールポータルの ?page=slack で一覧できる）。
+var NOTIFY_SLACK_USERNAME = '原稿サイズチェッカー';
+var NOTIFY_SLACK_ICON = ':straight_ruler:';
 var NOTIFY_SLACK_TOOL_NAME = 'Slack（まんがたり）';
 // エラーのときだけ、作品ごとの「_002編集ディレクター用」(ネットマンガラボWS・社内だけ)にも出す。
 // トークンが未設定ならこの送信だけ黙ってスキップする(集約チャンネルには出る)。

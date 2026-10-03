@@ -381,7 +381,11 @@ test('slackPost_: chat.postMessage へチャンネルと本文を送る。リン
   const res = c.slackPost_('xoxb-x', 'C1', 'やあ');
   deepEq(res, { ok: true, error: '', ts: '1.0' });
   assert.equal(c.__state.posts[0].url, 'https://slack.com/api/chat.postMessage');
-  deepEq(c.__state.posts[0].payload, { channel: 'C1', text: 'やあ', unfurl_links: false, unfurl_media: false });
+  // 全社Bot1本に寄せると投稿者が全部 all_tools_access になるので、表示名とアイコンを付ける
+  deepEq(c.__state.posts[0].payload, {
+    channel: 'C1', text: 'やあ', unfurl_links: false, unfurl_media: false,
+    username: '原稿サイズチェッカー', icon_emoji: ':straight_ruler:'
+  });
 });
 
 test('slackPost_: Slackが ok:false を返しても例外にしない', () => {
@@ -741,4 +745,73 @@ test('titles: 登録日時が未来にずれていたら直す(日付解釈で9�
   titles.byNo['0007-0044'].registeredAt = '2026-09-01 02:00';
   c.upsertAutoCheckTitle_(titles, { no: '0007-0044', name: 'ふくしゅうさん' }, 'SRC1');
   assert.equal(titles.byNo['0007-0044'].registeredAt, '2026-09-01 02:00');
+});
+
+// ============================================================
+// 画面(自動チェックタブ)に出す中身
+// ============================================================
+test('buildAutoCheckView_: 直っていない話とNG数を作品ごとにまとめる', () => {
+  const c = load();
+  const titles = { rows: [
+    { titleNo: '0007-0044', titleName: 'ふくしゅうさん', folderId: 'SRC1', seenAt: '2026-10-04 02:00' },
+    { titleNo: '0007-0010', titleName: 'レンタル・マーダー', folderId: 'SRC2', seenAt: '2026-10-04 02:00' },
+    { titleNo: '0007-0099', titleName: 'まだ連載前', folderId: '', seenAt: '2026-10-04 02:00' },
+  ] };
+  const state = { rows: [
+    { titleNo: '0007-0044', titleName: 'ふくしゅうさん', chapter: 13, folderId: 'F13', checkedAt: '2026-10-03 02:00', result: 'OK', ngCount: 0 },
+    { titleNo: '0007-0044', titleName: 'ふくしゅうさん', chapter: 14, folderId: 'F14', checkedAt: '2026-10-04 02:00', result: 'NG', ngCount: 2 },
+    { titleNo: '0007-0010', titleName: 'レンタル・マーダー', chapter: 44, folderId: 'F44', checkedAt: '2026-10-02 02:00', result: '初回登録', ngCount: 0 },
+  ] };
+  const v = plain(c.buildAutoCheckView_(titles, state));
+
+  deepEq(v.unresolved, [{
+    titleNo: '0007-0044', titleName: 'ふくしゅうさん', chapter: 14,
+    checkedAt: '2026-10-04 02:00', ngCount: 2,
+    folderUrl: 'https://drive.google.com/drive/folders/F14',
+  }], 'NGの話だけ・フォルダURL付き');
+
+  assert.equal(v.works.length, 3);
+  deepEq(v.works[0], {
+    titleNo: '0007-0010', titleName: 'レンタル・マーダー', seenAt: '2026-10-04 02:00',
+    folderUrl: 'https://drive.google.com/drive/folders/SRC2',
+    chapters: 1, ng: 0, lastCheckedAt: '2026-10-02 02:00', lastResult: '初回登録',
+  }, '作品No順');
+  deepEq(v.works[1].ng, 1, 'NGのままの話数');
+  deepEq(v.works[1].lastCheckedAt, '2026-10-04 02:00', '最後に見た話の時刻');
+  deepEq(v.works[2], {
+    titleNo: '0007-0099', titleName: 'まだ連載前', seenAt: '2026-10-04 02:00', folderUrl: '',
+    chapters: 0, ng: 0, lastCheckedAt: '', lastResult: '',
+  }, '写植がまだ無い作品も出す(見ていることが分かるように)');
+});
+
+test('loadAutoCheckLog_ / 最後に動いた記録: 書いて読み戻せる', () => {
+  const c = load({ props: { DB_SPREADSHEET_ID: 'DB' }, now: '2026-10-04 02:00' });
+  assert.equal(c.loadLastRun_(), null, '記録が無ければ null');
+  deepEq(c.loadAutoCheckLog_(10), []);
+
+  c.appendAutoCheckLog_([
+    { titleNo: '0007-0044', titleName: 'ふくしゅうさん', chapter: 14, folderId: 'F14', fileCount: 36, ok: false, ngCount: 2, lines: ['p005.tif — 幅不一致', '連番の欠番: 7'] },
+    { titleNo: '0007-0044', titleName: 'ふくしゅうさん', chapter: 15, folderId: 'F15', fileCount: 33, ok: true, ngCount: 0, lines: [] },
+  ]);
+  const log = plain(c.loadAutoCheckLog_(10));
+  assert.equal(log.length, 2);
+  deepEq(log[0], {
+    at: '2026-10-04 02:00', titleNo: '0007-0044', titleName: 'ふくしゅうさん', chapter: '15話',
+    fileCount: 33, result: 'OK', ngCount: 0, detail: '', folderUrl: 'https://drive.google.com/drive/folders/F15',
+  }, '新しい順に返す');
+  assert.equal(log[1].result, 'NG');
+  assert.equal(log[1].detail, 'p005.tif — 幅不一致 / 連番の欠番: 7');
+  assert.equal(log[1].folderUrl, 'https://drive.google.com/drive/folders/F14');
+});
+
+test('saveLastRun_: 静かな晩でも「動いた」が画面に出せる', () => {
+  const c = load({ props: { DB_SPREADSHEET_ID: 'DB' }, now: '2026-10-05 02:00' });
+  // スクリプトプロパティの書き込みを受けられるようにする
+  const store = {};
+  c.PropertiesService.getScriptProperties = () => ({
+    getProperty: (k) => (k in store ? store[k] : (k === 'DB_SPREADSHEET_ID' ? 'DB' : null)),
+    setProperty: (k, v) => { store[k] = v; },
+  });
+  c.saveLastRun_({ targets: 36, checked: 0, ok: 0, ng: 0, baseline: 0, skipped: [] });
+  deepEq(c.loadLastRun_(), { at: '2026-10-05 02:00', targets: 36, checked: 0, ok: 0, ng: 0, baseline: 0, skipped: 0 });
 });

@@ -39,7 +39,11 @@ function slackPost_(token, channelId, text) {
     method: 'post',
     contentType: 'application/json; charset=utf-8',
     headers: { Authorization: 'Bearer ' + token },
-    payload: JSON.stringify({ channel: channelId, text: text, unfurl_links: false, unfurl_media: false }),
+    payload: JSON.stringify({
+      channel: channelId, text: text, unfurl_links: false, unfurl_media: false,
+      // 全社Bot1本に寄せると投稿者が全部 all_tools_access になるので顔を足す(chat:write.customize)
+      username: NOTIFY_SLACK_USERNAME, icon_emoji: NOTIFY_SLACK_ICON
+    }),
     muteHttpExceptions: true
   });
   var body = {};
@@ -123,6 +127,12 @@ function mentionDirectory_(slackToolName) {
 /**
  * 作品の用途『編集ディレクター』チャンネルを business-hub から引く。
  * 投稿できない(非公開でBot未参加)・登録が無い場合は null。
+ *
+ * 🚩**ここが誤送信ガードそのもの**。宛先は business-hub「Slackチャンネル」タブに
+ * 用途『編集ディレクター』として登録された作品chだけに限られる＝タブが allowlist。
+ * ツール側にIDを直書きしないし、画面から任意のチャンネルを指させない。
+ * 集約の宛先も Config.gs の `NOTIFY_CHANNEL_ID` 定数で固定してある
+ * (Script Property で差し替えられる形にしていない)。
  */
 function titleChannelFor_(titleNo) {
   try {

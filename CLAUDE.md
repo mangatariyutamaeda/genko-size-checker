@@ -68,6 +68,8 @@ gas/tests/            judge.test.mjs(判定の正本) / checker.test.mjs(画面�
 - 辞書に無い人（社外のディレクター等）は `名前(Slack未解決)` と出す。**メンションが引けなくても通知自体は止めない**
 - 🚩**DBの日時列は書式を文字列(@)にする**（`isTimestampHeader_`）。そうしないとシートが `2026-10-03 11:24` を日付として解釈し、読み直すたびにスプレッドシートのTZ差ぶん（9時間）ずれていく（2026-10-03 に登録日時が 11:24→20:24 になって発覚）。ずれた分は `upsertAutoCheckTitle_` が「登録日時がいまより後なら直す」で自己修復する
 - DBのタブ: `autoCheckTitles`（見ている作品・写植フォルダIDの控え）/ `autoCheckState`（話ごとの既読状態と結果）/ `autoCheckLog`（実行の記録・5000行で古い方を切る）
+- 🚩 **投稿には表示名とアイコンを付ける**（`NOTIFY_SLACK_USERNAME` = 原稿サイズチェッカー / `:straight_ruler:`。`chat:write.customize`）。全社Bot1本に寄せると投稿者が全部 `all_tools_access` になり、どのツールの通知か見分けられないため。決め方の正本は `mangatari-portal/src/SlackNotify.gs`（ツールポータルの `?page=slack`）
+- 🚩 **送り先は固定されている**＝集約は `NOTIFY_CHANNEL_ID` 定数（`C0C61H6UQ11`）、作品chは business-hub「Slackチャンネル」タブに用途『編集ディレクター』で登録されたものだけ（タブが allowlist）。**画面から任意のチャンネルを指せない**ので、他ツールで入れた接頭辞ガード（`auto_`/`dev_` 限定）は要らない
 - トークンは Script Properties: `SLACK_BOT_TOKEN_MANGATARI`（必須。Bot は `all_tools_access`）/ `SLACK_BOT_TOKEN_NETMANGALABO`（無ければ作品chへの投稿だけ黙ってスキップ）
 - **OAuthスコープは増やしていない**（Drive読み取り・スプレッドシート・外部通信・トリガー・メールで足りる）。増やすと利用者全員に再認可が発生する
 
