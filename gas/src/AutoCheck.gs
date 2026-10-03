@@ -251,7 +251,7 @@ function loadAutoCheckLog_(limit) {
       titleNo: String(r[1] || ''), titleName: String(r[2] || ''), chapter: String(r[3] || ''),
       fileCount: r[4] === '' || r[4] == null ? null : Number(r[4]),
       result: String(r[5] || ''), ngCount: r[6] === '' || r[6] == null ? 0 : Number(r[6]),
-      detail: String(r[7] || ''), folderUrl: String(r[8] || '')
+      detail: String(r[7] || ''), folderUrl: String(r[8] || ''), trigger: String(r[9] || '')
     };
   }).reverse();   // 新しい順
 }
@@ -260,7 +260,13 @@ function loadAutoCheckLog_(limit) {
  * 画面の「自動チェック」タブに出す中身を組み立てる(純粋関数。I/Oは呼ぶ側)。
  * @return {{unresolved:!Array<Object>, works:!Array<Object>}}
  */
-function buildAutoCheckView_(titles, state) {
+function buildAutoCheckView_(titles, state, recent) {
+  // 「直っていない話」に何がNGだったかを出すため、直近のログから内容を拾っておく
+  var lastDetail = {};
+  (recent || []).forEach(function (r) {
+    var key = r.titleNo + '/' + String(r.chapter).replace('話', '');
+    if (lastDetail[key] === undefined) lastDetail[key] = r.detail;   // recent は新しい順
+  });
   var byTitle = {};
   (state.rows || []).forEach(function (r) {
     if (!byTitle[r.titleNo]) byTitle[r.titleNo] = { chapters: 0, ng: 0, lastCheckedAt: '', lastResult: '' };
@@ -278,7 +284,10 @@ function buildAutoCheckView_(titles, state) {
     .map(function (r) {
       return {
         titleNo: r.titleNo, titleName: r.titleName, chapter: r.chapter,
-        checkedAt: r.checkedAt, ngCount: r.ngCount, folderUrl: driveFolderUrl_(r.folderId)
+        checkedAt: r.checkedAt, ngCount: r.ngCount,
+        chapterFolderId: r.folderId,            // 再チェックのボタンが指す先
+        folderUrl: driveFolderUrl_(r.folderId),
+        detail: (lastDetail[r.titleNo + '/' + r.chapter] || '')   // 直近のログから何がNGだったかを拾う
       };
     });
 
@@ -394,29 +403,68 @@ function findChangedChapters_(title, resolved, state) {
   var candidates = pickCandidateChapters_(all, state, AUTO_CHECK_RECENT_CHAPTERS);
   var chapters = [];
   for (var i = 0; i < candidates.length; i++) {
-    var folder = candidates[i];
-    var imageFolder = pickImageFolder_(folder);
-    var files = imageFolder.files.filter(function (f) { return fileKind_(f.name, f.mimeType); })
-      .map(function (f) {
-        return {
-          id: f.id, name: f.name, mimeType: f.mimeType,
-          size: f.size != null ? Number(f.size) : null,
-          kind: fileKind_(f.name, f.mimeType)
-        };
-      });
-    if (!files.length) continue;                   // まだ何も上がっていない話は黙って飛ばす
-    var signature = fileSignature_(files);
-    var known = state.byFolderId[folder.id];
-    if (known && known.signature === signature) continue;    // 前回から変わっていない
-    chapters.push({
-      titleNo: title.no, titleName: title.name,
-      number: folder.number, folderName: folder.name,
-      folderId: folder.id, imageFolderId: imageFolder.id, psdFolderId: imageFolder.psdFolderId,
-      files: files, signature: signature
-    });
+    var chapter = readChapter_(title, candidates[i]);
+    if (!chapter) continue;                                  // まだ何も上がっていない話は黙って飛ばす
+    var known = state.byFolderId[chapter.folderId];
+    if (known && known.signature === chapter.signature) continue;   // 前回から変わっていない
+    chapters.push(chapter);
   }
   chapters.sort(function (a, b) { return a.number - b.number; });  // 通知は話の順に出す
   return chapters;
+}
+
+/**
+ * 話フォルダ1つ分を読む(TIFの画像＋隣のPSDの場所＋署名)。画像が1枚も無ければ null。
+ * 毎晩の走査と、画面からの再チェック(api_recheckChapter)で共用する。
+ * @param {{no:string, name:string}} title
+ * @param {{id:string, name:string, number:number}} folder 話フォルダ
+ */
+function readChapter_(title, folder) {
+  var imageFolder = pickImageFolder_(folder);
+  var files = imageFolder.files.filter(function (f) { return fileKind_(f.name, f.mimeType); })
+    .map(function (f) {
+      return {
+        id: f.id, name: f.name, mimeType: f.mimeType,
+        size: f.size != null ? Number(f.size) : null,
+        kind: fileKind_(f.name, f.mimeType)
+      };
+    });
+  if (!files.length) return null;
+  return {
+    titleNo: title.no, titleName: title.name,
+    number: folder.number, folderName: folder.name,
+    folderId: folder.id, imageFolderId: imageFolder.id, psdFolderId: imageFolder.psdFolderId,
+    files: files, signature: fileSignature_(files)
+  };
+}
+
+/**
+ * 画面から「この話をいま再チェックする」。直したその場で結果を出すためのもの。
+ * 🚩**DBに既にある話しか再チェックできない**(任意のDriveフォルダを指させない)。
+ * 結果は毎晩の走査と同じように記録するので、直っていれば次の晩はもう鳴らない。
+ * Slackには出さない(押した人が画面を見ているため。Slackはアラート・画面が詳細)。
+ * @param {string} chapterFolderId 話フォルダのID(autoCheckState の「話フォルダID」)
+ */
+function recheckChapter_(chapterFolderId) {
+  var id = String(chapterFolderId || '').trim();
+  if (!/^[-\w]{10,}$/.test(id)) throw new Error('話フォルダのIDとして読めません。');
+
+  var state = loadAutoCheckState_();
+  var known = state.byFolderId[id];
+  if (!known) throw new Error('この話は自動チェックの対象として登録されていません。画面を最新にしてからもう一度試してください。');
+
+  var title = { no: known.titleNo, name: known.titleName };
+  var folder = { id: id, name: known.chapter + '話', number: known.chapter };
+  var chapter = readChapter_(title, folder);
+  if (!chapter) {
+    throw new Error('この話のフォルダに画像が見つかりませんでした(TIFフォルダが空か、フォルダが移動した可能性があります)。');
+  }
+
+  var result = checkChapter_(title, chapter, loadAutoCheckSpec_());
+  upsertAutoCheckState_(state, chapter, { result: result.ok ? 'OK' : 'NG', ngCount: result.ngCount });
+  saveAutoCheckState_(state);
+  appendAutoCheckLog_([result], '画面から再チェック');
+  return result;
 }
 
 /**
@@ -481,8 +529,7 @@ function checkChapter_(title, chapter, spec) {
       titleNo: title.no, titleName: title.name, chapter: chapter.number,
       folderId: chapter.imageFolderId, fileCount: chapter.files.length, imageCount: images.length,
       ok: false, ngCount: 0, noteCount: 0,
-      lines: ['画像が ' + images.length + ' 件あり、1話の上限(' + AUTO_CHECK_MAX_FILES_PER_CHAPTER + '件)を超えています。画面から手で確認してください'],
-      mentionNames: mentionNamesFor_(title.no)
+      lines: ['画像が ' + images.length + ' 件あり、1話の上限(' + AUTO_CHECK_MAX_FILES_PER_CHAPTER + '件)を超えています。画面から手で確認してください']
     };
   }
 
@@ -508,14 +555,16 @@ function checkChapter_(title, chapter, spec) {
     return { name: f.name, kind: 'psd', root: chapter.folderName };
   }));
   var setChecks = computeSetChecks_(setFiles);
-  var lines = summarizeNg_(rows, setChecks, AUTO_CHECK_MAX_NG_LINES);
+  // 🚩ここでは**切らない**。画面(自動チェックタブ)は全部出す。Slackに出すときだけ切る
+  //   （Slackはアラート・画面が詳細、という役割分担）。
+  var lines = summarizeNg_(rows, setChecks, 0);
   var ngCount = rows.filter(function (r) { return !r.ok; }).length;
 
   return {
     titleNo: title.no, titleName: title.name, chapter: chapter.number,
     folderId: chapter.imageFolderId, fileCount: chapter.files.length, imageCount: images.length,
     ok: lines.length === 0, ngCount: ngCount, noteCount: notes,
-    lines: lines, mentionNames: mentionNamesFor_(title.no)
+    lines: lines
   };
 }
 
@@ -526,7 +575,7 @@ function inspectImages_(files) {
 
 /**
  * NG の内容を人が読む行にする(純粋関数)。ファイルごとのNG → セット整合性の警告 の順。
- * maxLines を超えたら「ほか N件」で締める。
+ * maxLines を渡したときだけ「ほか N件」で締める(0・未指定なら全部返す)。
  */
 function summarizeNg_(rows, setChecks, maxLines) {
   var lines = [];
@@ -536,12 +585,16 @@ function summarizeNg_(rows, setChecks, maxLines) {
   ((setChecks && setChecks.warnings) || []).forEach(function (w) {
     (w.items || []).forEach(function (item) { lines.push(item); });
   });
-  if (maxLines && lines.length > maxLines) {
-    var rest = lines.length - maxLines;
-    lines = lines.slice(0, maxLines);
-    lines.push('ほか ' + rest + '件(詳細は画面でチェックしてください)');
-  }
-  return lines;
+  return maxLines ? capLines_(lines, maxLines) : lines;
+}
+
+/**
+ * Slack に並べる行を切る(純粋関数)。詳細は画面で見てもらう前提なので、通知は短く。
+ */
+function capLines_(lines, maxLines) {
+  if (!maxLines || lines.length <= maxLines) return lines;
+  var rest = lines.length - maxLines;
+  return lines.slice(0, maxLines).concat(['ほか ' + rest + '件(詳細は画面の「🤖 自動チェック」タブで見られます)']);
 }
 
 // ============================================================
@@ -754,14 +807,14 @@ function saveAutoCheckState_(state) {
 }
 
 /** チェックした話をログに足す(古い行は AUTO_CHECK_LOG_MAX_ROWS まで切る)。 */
-function appendAutoCheckLog_(results) {
+function appendAutoCheckLog_(results, trigger) {
   if (!results || !results.length) return;
   var sheet = autoCheckSheet_(AUTO_CHECK_LOG_SHEET, AUTO_CHECK_LOG_HEADER);
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
   var rows = results.map(function (r) {
     return [now, r.titleNo, r.titleName, r.chapter + '話', r.fileCount,
-      r.ok ? 'OK' : 'NG', r.ngCount, r.lines.join(' / ').slice(0, 2000),
-      driveFolderUrl_(r.folderId), NOTIFY_CHANNEL_NAME];
+      r.ok ? 'OK' : 'NG', r.ngCount, r.lines.join(' / ').slice(0, AUTO_CHECK_LOG_DETAIL_MAX),
+      driveFolderUrl_(r.folderId), trigger || ('毎晩' + AUTO_CHECK_HOUR + ':00')];
   });
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, AUTO_CHECK_LOG_HEADER.length).setValues(rows);
   var over = sheet.getLastRow() - 1 - AUTO_CHECK_LOG_MAX_ROWS;
@@ -823,7 +876,7 @@ function notifyAutoCheck_(results, state, targetCount, skipped) {
     targetCount: targetCount,
     skipped: skipped,
     unresolved: unresolvedNgRows_(state, results),
-    mentions: results.map(function (r) { return buildMentions_(r.mentionNames, dir.byName).text; })
+    mentions: results.map(function (r) { return buildMentions_(mentionNamesFor_(r.titleNo), dir.byName).text; })
   });
   posted.aggregate = slackPost_(token, NOTIFY_CHANNEL_ID, text);
 
@@ -834,7 +887,7 @@ function notifyAutoCheck_(results, state, targetCount, skipped) {
   results.filter(function (r) { return !r.ok; }).forEach(function (r) {
     var ch = titleChannelFor_(r.titleNo);
     if (!ch) return;
-    var body = buildTitleMessage_(r, buildMentions_(r.mentionNames, titleDir.byName).text);
+    var body = buildTitleMessage_(r, buildMentions_(mentionNamesFor_(r.titleNo), titleDir.byName).text);
     var res = slackPost_(titleToken, ch.channelId, body);
     posted.titles.push({ titleNo: r.titleNo, channel: ch.channelName, ok: res.ok, error: res.error });
   });
@@ -872,7 +925,7 @@ function buildRunMessage_(results, ctx) {
     results.forEach(function (r, i) {
       lines.push((r.ok ? '✅ ' : '⚠️ ') + r.titleNo + ' ' + r.titleName + ' ' + r.chapter + '話 — 画像' + r.imageCount + '件' +
         (r.ok ? ' すべてOK' : ' / NG ' + r.ngCount + '件'));
-      r.lines.forEach(function (item) { lines.push('　　・' + item); });
+      capLines_(r.lines, AUTO_CHECK_MAX_NG_LINES).forEach(function (item) { lines.push('　　・' + item); });
       if (r.noteCount) lines.push('　　（注記 ' + r.noteCount + '件: DPI未検証。判定はOKのまま）');
       if (!r.ok) {
         lines.push('　　' + driveFolderUrl_(r.folderId));
@@ -900,7 +953,7 @@ function buildRunMessage_(results, ctx) {
 function buildTitleMessage_(result, mentionText) {
   var lines = ['⚠️ *写植データ自動チェック* — ' + result.titleName + ' ' + result.chapter + '話'];
   lines.push('画像' + result.imageCount + '件 / NG ' + result.ngCount + '件');
-  result.lines.forEach(function (item) { lines.push('・' + item); });
+  capLines_(result.lines, AUTO_CHECK_MAX_NG_LINES).forEach(function (item) { lines.push('・' + item); });
   lines.push(driveFolderUrl_(result.folderId));
   if (mentionText) lines.push('担当: ' + mentionText);
   lines.push('_全作品の結果は まんがたりの ' + NOTIFY_CHANNEL_NAME + ' に出ています_');

@@ -147,7 +147,7 @@
 
   <div class="card" id="autoUnresolvedCard" style="display:none;">
     <h2>直っていない話 <span class="badge" id="autoUnresolvedCount"></span></h2>
-    <div class="sub">前の晩までにNGが出て、まだファイルが変わっていない話です。直すと次の晩に自動でOKになります。</div>
+    <div class="sub">NGが出たまま残っている話です。ファイルを直したら<b>「再チェック」</b>を押すと、その場でもう一度見ます(毎晩2:00を待たなくて大丈夫です)。直っていればこの表から消えます。</div>
     <div class="table-wrap" style="margin-top:10px;"><table id="autoUnresolvedTable"></table></div>
   </div>
 
@@ -826,13 +826,14 @@ function renderAutoCheck(d) {
   $('autoUnresolvedCard').style.display = unresolved.length ? 'block' : 'none';
   $('autoUnresolvedCount').textContent = `${unresolved.length}件`;
   $('autoUnresolvedTable').innerHTML = autoTableHtml(
-    ['作品', '話', '検出', 'NG件数', ''],
+    ['作品', '話', '検出', 'NG件数', '内容', ''],
     unresolved.map(r => [
       `${escapeHtml(r.titleNo)} ${escapeHtml(r.titleName)}`,
       `${r.chapter}話`,
       escapeHtml(r.checkedAt),
       `<span class="fail">${r.ngCount}</span>`,
-      autoFolderLink(r.folderUrl),
+      autoDetailHtml(r.detail),
+      autoFolderLink(r.folderUrl) + autoRecheckButton(r.chapterFolderId),
     ]));
 
   const recent = d.recent || [];
@@ -875,6 +876,36 @@ function autoLastRunText(last) {
   if (last.notifyError) parts.push(`⚠️ Slackに投稿できませんでした(${last.notifyError})`);
   return parts.join(' ／ ');
 }
+
+// 「直したので、いま見てほしい」ためのボタン。毎晩2:00を待たずにその場で結果が出る。
+function autoRecheckButton(chapterFolderId) {
+  if (!chapterFolderId) return '';
+  return ' <button type="button" class="secondary auto-recheck" data-folder="'
+    + escapeHtml(chapterFolderId) + '">再チェック</button>';
+}
+
+async function runRecheck(btn) {
+  const folderId = btn.dataset.folder;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'チェック中...';
+  try {
+    const r = await callServer('api_recheckChapter', folderId);
+    const head = `${r.titleNo} ${r.titleName} ${r.chapter}話 (画像${r.imageCount}件)`;
+    if (r.ok) setStatus('autoStatus', `✅ ${head} 問題は見つかりませんでした。`, 'ok');
+    else setStatus('autoStatus', `⚠️ ${head} NG ${r.ngCount}件: ${r.lines.join(' / ')}`, 'error');
+    await loadAutoCheck(true);   // 一覧を入れ替える(直っていれば上の表から消える)
+  } catch (e) {
+    setStatus('autoStatus', '再チェックできませんでした: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
+
+$('view-auto').addEventListener('click', (ev) => {
+  const btn = ev.target.closest('.auto-recheck');
+  if (btn) runRecheck(btn);
+});
 
 function autoFolderLink(url, label) {
   if (!url) return '';

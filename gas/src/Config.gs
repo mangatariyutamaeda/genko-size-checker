@@ -81,7 +81,7 @@ var AUTO_CHECK_MAX_CHAPTERS_PER_RUN = 12;
 var AUTO_CHECK_MAX_FILES_PER_CHAPTER = 200;
 // 新しい作品の走査を打ち切る目安(GASの上限は6分。残りは翌晩に回す)。
 var AUTO_CHECK_DEADLINE_MS = 4 * 60 * 1000;
-// Slack に並べるNGの行数の上限(超えたら「ほか N件」で締める)。
+// Slack に並べるNGの行数の上限(超えたら「ほか N件」で締める)。画面は全部出すのでここでは切らない。
 var AUTO_CHECK_MAX_NG_LINES = 8;
 
 // DB(DB_SPREADSHEET_ID)のタブ。titles=見ている作品 / state=話ごとの既読状態 / log=実行の記録。
@@ -93,7 +93,9 @@ var AUTO_CHECK_TITLES_HEADER = ['作品No', '作品名', '写植完成フォル�
 var AUTO_CHECK_STATE_SHEET = 'autoCheckState';
 var AUTO_CHECK_STATE_HEADER = ['作品No', '作品名', '話', '話フォルダID', '署名', 'ファイル数', '最終チェック', '結果', 'NG件数'];
 var AUTO_CHECK_LOG_SHEET = 'autoCheckLog';
-var AUTO_CHECK_LOG_HEADER = ['日時', '作品No', '作品名', '話', 'ファイル数', '結果', 'NG件数', '内容', 'フォルダ', '通知先'];
+var AUTO_CHECK_LOG_HEADER = ['日時', '作品No', '作品名', '話', 'ファイル数', '結果', 'NG件数', '内容', 'フォルダ', 'きっかけ'];
+// 「内容」に入れるNGの説明の上限(セル1つの上限は5万字)。画面はここに入っている分を全部出す。
+var AUTO_CHECK_LOG_DETAIL_MAX = 20000;
 var AUTO_CHECK_LOG_MAX_ROWS = 5000;
 // 画面の「自動チェック」タブに出す最近の結果の件数。
 var AUTO_CHECK_VIEW_LOG_ROWS = 200;

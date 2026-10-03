@@ -268,7 +268,8 @@ function api_autoCheckSummary() {
   requireAllowed_();
   var titles = loadAutoCheckTitles_();
   var state = loadAutoCheckState_();
-  var view = buildAutoCheckView_(titles, state);
+  var recent = loadAutoCheckLog_(AUTO_CHECK_VIEW_LOG_ROWS);
+  var view = buildAutoCheckView_(titles, state, recent);
   return {
     ok: true,
     hour: AUTO_CHECK_HOUR,
@@ -276,7 +277,22 @@ function api_autoCheckSummary() {
     lastRun: loadLastRun_(),
     unresolved: view.unresolved,
     works: view.works,
-    recent: loadAutoCheckLog_(AUTO_CHECK_VIEW_LOG_ROWS)
+    recent: recent
+  };
+}
+
+/**
+ * 画面の「自動チェック」タブから、その話をいま再チェックする。
+ * 直したその場で結果を見られるようにするためのもの（毎晩まで待たなくていい）。
+ * DBに登録済みの話しか指せない。結果は毎晩の走査と同じように記録する。
+ */
+function api_recheckChapter(chapterFolderId) {
+  requireAllowed_();
+  var r = recheckChapter_(chapterFolderId);
+  return {
+    ok: r.ok, titleNo: r.titleNo, titleName: r.titleName, chapter: r.chapter,
+    imageCount: r.imageCount, ngCount: r.ngCount, noteCount: r.noteCount,
+    lines: r.lines, folderUrl: driveFolderUrl_(r.folderId)
   };
 }
 

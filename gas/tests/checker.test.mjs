@@ -77,7 +77,7 @@ const pieces = [
   shimNewsStore,
   shimEscapeHtml,
   extractFn('fileExt'), extractFn('normExt'), extractFn('chunkArray'),
-  extractFn('autoLastRunText'), extractFn('autoFolderLink'),
+  extractFn('autoLastRunText'), extractFn('autoFolderLink'), extractFn('autoRecheckButton'),
   extractFn('autoDetailHtml'), extractFn('autoTableHtml'),
   extractFn('setupNoticeText'),
   extractFn('toSpec'), extractFn('describeSpec'),
@@ -86,7 +86,7 @@ const pieces = [
   extractFn('getSeenNewsId'), extractFn('hasUnreadNews'),
 ];
 const exportNames = ['fileExt', 'normExt', 'chunkArray', 'setupNoticeText',
-  'autoLastRunText', 'autoFolderLink', 'autoDetailHtml', 'autoTableHtml',
+  'autoLastRunText', 'autoFolderLink', 'autoRecheckButton', 'autoDetailHtml', 'autoTableHtml',
   'toSpec', 'describeSpec', 'buildMasterErrorNotifyText',
   'NEWS', 'getSeenNewsId', 'hasUnreadNews', '__setSeenNews'];
 const C = new Function(pieces.join('\n\n') + '\nreturn {' + exportNames.join(',') + '};')();
@@ -155,6 +155,8 @@ console.log('# buildMasterErrorNotifyText (管理者への連絡文)');
 console.log('# 自動チェックタブ (毎晩の結果を画面で見る)');
 check('タブのボタンがある', /id="tabBtnAuto"/.test(html), true);
 check('サーバから結果を引く', SRC.includes("'api_autoCheckSummary'"), true);
+check('直したその場で再チェックできる', SRC.includes("'api_recheckChapter'"), true);
+check('再チェックのボタンを出す', /class="secondary auto-recheck"/.test(SRC), true);
 check('集計は画面でやらない(サーバの Judge.gs / AutoCheck.gs が正本)',
   /function\s+buildAutoCheckView\s*\(/.test(SRC), false);
 {
@@ -171,6 +173,8 @@ check('集計は画面でやらない(サーバの Judge.gs / AutoCheck.gs が�
   check('フォルダリンク', C.autoFolderLink('https://drive.google.com/drive/folders/X'),
     '<a href="https://drive.google.com/drive/folders/X" target="_blank" rel="noopener">フォルダ</a>');
   check('NGの内容は1件1行にする', C.autoDetailHtml('a — 幅不一致 / 連番の欠番: 7'), 'a — 幅不一致<br>連番の欠番: 7');
+  check('再チェックのボタンは話フォルダIDを持つ', C.autoRecheckButton('CHAPTER000006').includes('data-folder="CHAPTER000006"'), true);
+  check('フォルダIDが無ければボタンを出さない', C.autoRecheckButton(''), '');
   check('内容が空なら空', C.autoDetailHtml(''), '');
   check('見出しはエスケープし、セルは渡されたHTMLをそのまま入れる(エスケープは呼ぶ側の責務)',
     C.autoTableHtml(['作品<b>'], [['<span class="ok">OK</span>']]),

@@ -762,13 +762,20 @@ test('buildAutoCheckView_: 直っていない話とNG数を作品ごとにまと
     { titleNo: '0007-0044', titleName: 'ふくしゅうさん', chapter: 14, folderId: 'F14', checkedAt: '2026-10-04 02:00', result: 'NG', ngCount: 2 },
     { titleNo: '0007-0010', titleName: 'レンタル・マーダー', chapter: 44, folderId: 'F44', checkedAt: '2026-10-02 02:00', result: '初回登録', ngCount: 0 },
   ] };
-  const v = plain(c.buildAutoCheckView_(titles, state));
+  // 直近のログ(新しい順)。「直っていない話」に何がNGだったかを出すために渡す
+  const recent = [
+    { titleNo: '0007-0044', chapter: '14話', detail: 'p005.tif — 幅不一致 / 連番の欠番: 7' },
+    { titleNo: '0007-0044', chapter: '14話', detail: '(これは古い方なので採らない)' },
+  ];
+  const v = plain(c.buildAutoCheckView_(titles, state, recent));
 
   deepEq(v.unresolved, [{
     titleNo: '0007-0044', titleName: 'ふくしゅうさん', chapter: 14,
     checkedAt: '2026-10-04 02:00', ngCount: 2,
+    chapterFolderId: 'F14',
     folderUrl: 'https://drive.google.com/drive/folders/F14',
-  }], 'NGの話だけ・フォルダURL付き');
+    detail: 'p005.tif — 幅不一致 / 連番の欠番: 7',
+  }], 'NGの話だけ・再チェック用のフォルダIDと、直近のNGの内容つき');
 
   assert.equal(v.works.length, 3);
   deepEq(v.works[0], {
@@ -798,6 +805,7 @@ test('loadAutoCheckLog_ / 最後に動いた記録: 書いて読み戻せる', (
   deepEq(log[0], {
     at: '2026-10-04 02:00', titleNo: '0007-0044', titleName: 'ふくしゅうさん', chapter: '15話',
     fileCount: 33, result: 'OK', ngCount: 0, detail: '', folderUrl: 'https://drive.google.com/drive/folders/F15',
+    trigger: '毎晩2:00',
   }, '新しい順に返す');
   assert.equal(log[1].result, 'NG');
   assert.equal(log[1].detail, 'p005.tif — 幅不一致 / 連番の欠番: 7');
@@ -856,4 +864,93 @@ test('testAutoCheckNotify: Slackが断ったら理由を添えて止める', () 
   c.currentEmail_ = () => 'mangatari.yuta.maeda@gmail.com';
   c.isAdmin_ = () => true;
   assert.throws(() => c.testAutoCheckNotify(), /invalid_auth/);
+});
+
+// ============================================================
+// Slackは短く、画面は全部（役割分担）
+// ============================================================
+test('summarizeNg_: 画面用は切らない / capLines_ でSlack用だけ短くする', () => {
+  const c = load();
+  const rows = Array.from({ length: 12 }, (_, i) => ({ name: 'p' + i + '.tif', ok: false, reason: 'NG' }));
+  const full = c.summarizeNg_(rows, { ok: true, warnings: [] }, 0);
+  assert.equal(full.length, 12, '0 を渡したら全部返す');
+  assert.equal(c.summarizeNg_(rows, { ok: true, warnings: [] }).length, 12, '未指定でも全部');
+
+  const capped = plain(c.capLines_(full, 8));
+  assert.equal(capped.length, 9);
+  assert.match(capped[8], /ほか 4件.*自動チェック/, '続きは画面で見てもらう');
+  deepEq(c.capLines_(['a'], 8), ['a'], '上限以下はそのまま');
+});
+
+// ============================================================
+// 画面からの再チェック
+// ============================================================
+test('再チェック: 直したその場でOKになり、表から消える(Slackには出さない)', () => {
+  const tree = {
+    WORK6: { folders: [{ id: 'SH6', name: '430_写植' }], files: [] },
+    SH6: { folders: [{ id: 'SRC6', name: '200_写植依頼→完成ファイル' }], files: [] },
+    SRC6: { folders: [{ id: 'CHAPTER000006', name: '008話' }], files: [] },
+    CHAPTER000006: { folders: [{ id: 'TIF6', name: 'TIF' }], files: [] },
+    TIF6: { folders: [], files: [{ id: 'fileNG000031', name: '008_001.tif', mimeType: 'image/tiff', size: String(NARROW_TIFF.length) }] },
+  };
+  const FILES = { fileNG000031: NARROW_TIFF };
+  const titles = [{ no: '0007-0031', formalName: 'なおす作品', workStatus: '４．連載中（継続）', driveFolderId: 'WORK6' }];
+  const c = loadWired({ tree, titles, files: FILES });
+
+  c.autoCheckMain_({ notify: true });                 // 初回登録
+  c.__state.now = '2026-10-05 02:00';
+  tree.TIF6.files.push({ id: 'fileNG000032', name: '008_002.tif', mimeType: 'image/tiff', size: String(NARROW_TIFF.length) });
+  FILES.fileNG000032 = NARROW_TIFF;
+  const nightly = plain(c.autoCheckMain_({ notify: true }));
+  assert.equal(nightly.ng, 1, '晩のチェックでNGになる');
+  assert.equal(c.loadAutoCheckState_().byFolderId.CHAPTER000006.result, 'NG');
+
+  // 画面で「直っていない話」に出る
+  const before = plain(c.buildAutoCheckView_(c.loadAutoCheckTitles_(), c.loadAutoCheckState_(), c.loadAutoCheckLog_(50)));
+  assert.equal(before.unresolved.length, 1);
+  assert.equal(before.unresolved[0].chapterFolderId, 'CHAPTER000006', '再チェックのボタンが指す先');
+  assert.match(before.unresolved[0].detail, /幅不一致/, '何がNGだったか画面で分かる');
+
+  // 直して再チェック
+  c.__state.now = '2026-10-05 11:00';
+  c.__state.posts.length = 0;
+  FILES.fileNG000031 = OK_TIFF;
+  FILES.fileNG000032 = OK_TIFF;
+  const r = plain(c.recheckChapter_('CHAPTER000006'));
+  assert.equal(r.ok, true);
+  assert.equal(r.chapter, 8);
+  assert.equal(c.__state.posts.length, 0, 'Slackには出さない(押した人が画面を見ている)');
+
+  const after = plain(c.buildAutoCheckView_(c.loadAutoCheckTitles_(), c.loadAutoCheckState_(), c.loadAutoCheckLog_(50)));
+  deepEq(after.unresolved, [], '直っていない話から消える');
+  assert.equal(c.loadAutoCheckState_().byFolderId.CHAPTER000006.result, 'OK');
+
+  const log = plain(c.loadAutoCheckLog_(50));
+  assert.equal(log[0].result, 'OK');
+  assert.equal(log[0].trigger, '画面から再チェック', 'きっかけが残る');
+  assert.equal(log[1].trigger, '毎晩2:00');
+});
+
+test('再チェック: 登録されていない話・おかしなIDは断る(任意のフォルダを指させない)', () => {
+  const c = load({ props: { DB_SPREADSHEET_ID: 'DB' } });
+  assert.throws(() => c.recheckChapter_('short'), /IDとして読めません/);
+  assert.throws(() => c.recheckChapter_(''), /IDとして読めません/);
+  assert.throws(() => c.recheckChapter_('1AbCdEfGhIjKlMnOp'), /登録されていません/);
+});
+
+test('再チェック: フォルダが空なら理由を言って止める(結果を書き換えない)', () => {
+  const tree = {
+    CHAPTER000007: { folders: [{ id: 'TIF7', name: 'TIF' }], files: [] },
+    TIF7: { folders: [], files: [] },
+  };
+  const c = loadWired({ tree, titles: [], files: {} });
+  const state = c.loadAutoCheckState_();
+  c.upsertAutoCheckState_(state, {
+    titleNo: '0007-0031', titleName: 'なおす作品', number: 8, folderId: 'CHAPTER000007',
+    signature: '1-aaaaaaaa', files: [{}],
+  }, { result: 'NG', ngCount: 1 });
+  c.saveAutoCheckState_(state);
+
+  assert.throws(() => c.recheckChapter_('CHAPTER000007'), /画像が見つかりませんでした/);
+  assert.equal(c.loadAutoCheckState_().byFolderId.CHAPTER000007.result, 'NG', '結果はそのまま');
 });
