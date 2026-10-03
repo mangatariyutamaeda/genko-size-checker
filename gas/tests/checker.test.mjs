@@ -172,7 +172,9 @@ check('集計は画面でやらない(サーバの Judge.gs / AutoCheck.gs が�
   check('フォルダURLが無ければリンクを出さない', C.autoFolderLink(''), '');
   check('フォルダリンク', C.autoFolderLink('https://drive.google.com/drive/folders/X'),
     '<a href="https://drive.google.com/drive/folders/X" target="_blank" rel="noopener">フォルダ</a>');
-  check('NGの内容は1件1行にする', C.autoDetailHtml('a — 幅不一致 / 連番の欠番: 7'), 'a — 幅不一致<br>連番の欠番: 7');
+  check('NGの内容は1件1行にして、この列だけ折り返す(区切りは改行)',
+    C.autoDetailHtml('a — 幅不一致(期待 300px ちょうど / 実測 120px)\n連番の欠番: 7'),
+    '<div class="auto-detail">a — 幅不一致(期待 300px ちょうど / 実測 120px)<br>連番の欠番: 7</div>');
   check('再チェックのボタンは話フォルダIDを持つ', C.autoRecheckButton('CHAPTER000006').includes('data-folder="CHAPTER000006"'), true);
   check('フォルダIDが無ければボタンを出さない', C.autoRecheckButton(''), '');
   check('内容が空なら空', C.autoDetailHtml(''), '');
@@ -181,7 +183,7 @@ check('集計は画面でやらない(サーバの Judge.gs / AutoCheck.gs が�
     '<tr><th>作品&lt;b&gt;</th></tr><tr><td><span class="ok">OK</span></td></tr>');
   // 作品名は人が入力するので、描画側で必ず escapeHtml を通していること
   check('作品名は escapeHtml を通している', /escapeHtml\(r\.titleName\)/.test(SRC), true);
-  check('NGの内容も escapeHtml を通している', /detail\.split\(' \/ '\)\.map\(x => escapeHtml\(x\)\)/.test(SRC), true);
+check('NGの内容も escapeHtml を通している', SRC.includes('.map(x => escapeHtml(x)).join(\'<br>\')'), true);
 }
 
 // ===== お知らせ(最新News)の未読判定 =====

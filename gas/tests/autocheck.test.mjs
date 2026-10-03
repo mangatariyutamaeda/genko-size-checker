@@ -764,7 +764,7 @@ test('buildAutoCheckView_: 直っていない話とNG数を作品ごとにまと
   ] };
   // 直近のログ(新しい順)。「直っていない話」に何がNGだったかを出すために渡す
   const recent = [
-    { titleNo: '0007-0044', chapter: '14話', detail: 'p005.tif — 幅不一致 / 連番の欠番: 7' },
+    { titleNo: '0007-0044', chapter: '14話', detail: 'p005.tif — 幅不一致\n連番の欠番: 7' },
     { titleNo: '0007-0044', chapter: '14話', detail: '(これは古い方なので採らない)' },
   ];
   const v = plain(c.buildAutoCheckView_(titles, state, recent));
@@ -774,7 +774,7 @@ test('buildAutoCheckView_: 直っていない話とNG数を作品ごとにまと
     checkedAt: '2026-10-04 02:00', ngCount: 2,
     chapterFolderId: 'F14',
     folderUrl: 'https://drive.google.com/drive/folders/F14',
-    detail: 'p005.tif — 幅不一致 / 連番の欠番: 7',
+    detail: 'p005.tif — 幅不一致\n連番の欠番: 7',
   }], 'NGの話だけ・再チェック用のフォルダIDと、直近のNGの内容つき');
 
   assert.equal(v.works.length, 3);
@@ -808,7 +808,7 @@ test('loadAutoCheckLog_ / 最後に動いた記録: 書いて読み戻せる', (
     trigger: '毎晩2:00',
   }, '新しい順に返す');
   assert.equal(log[1].result, 'NG');
-  assert.equal(log[1].detail, 'p005.tif — 幅不一致 / 連番の欠番: 7');
+  assert.equal(log[1].detail, 'p005.tif — 幅不一致\n連番の欠番: 7', '区切りは改行(各行の中に " / " が入るため)');
   assert.equal(log[1].folderUrl, 'https://drive.google.com/drive/folders/F14');
 });
 

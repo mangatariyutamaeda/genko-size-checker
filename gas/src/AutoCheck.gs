@@ -813,7 +813,9 @@ function appendAutoCheckLog_(results, trigger) {
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
   var rows = results.map(function (r) {
     return [now, r.titleNo, r.titleName, r.chapter + '話', r.fileCount,
-      r.ok ? 'OK' : 'NG', r.ngCount, r.lines.join(' / ').slice(0, AUTO_CHECK_LOG_DETAIL_MAX),
+      // 🚩区切りは改行。各行の中に「幅不一致(期待 … / 実測 …)」のように " / " が入るので、
+      //   " / " で繋ぐと画面で折る位置を間違える(2026-10-03 プレビューで判明)。
+      r.ok ? 'OK' : 'NG', r.ngCount, r.lines.join('\n').slice(0, AUTO_CHECK_LOG_DETAIL_MAX),
       driveFolderUrl_(r.folderId), trigger || ('毎晩' + AUTO_CHECK_HOUR + ':00')];
   });
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, AUTO_CHECK_LOG_HEADER.length).setValues(rows);

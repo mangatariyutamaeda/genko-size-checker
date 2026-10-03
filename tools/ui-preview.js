@@ -51,12 +51,29 @@ const vol2 = add(ROOT_FOLDER, '02巻');
 for (let p = 1; p <= 6; p++) add(vol2, `352974_002_${String(p).padStart(3, '0')}.tif`, p === 6 ? 'tif_cmyk' : 'tif_gray');
 add(vol2, 'おまけ_001.jpg', 'jpg_gray');
 
+// ---- 自動チェックの見本（写植の木）。話フォルダ → TIF / PSD は実物と同じ並び ----
+// 「直っていない話」の再チェックボタンが、ここに向かって本物の判定を走らせる。
+const CH_OK = add(null, '007話', null, 'CHAPTER0000007');
+const tifOk = add(CH_OK, 'TIF');
+for (let p = 1; p <= 3; p++) add(tifOk, `352974_007_${String(p).padStart(3, '0')}.tif`, 'tif_gray');
+const psdOk = add(CH_OK, 'PSD');
+for (let p = 1; p <= 3; p++) add(psdOk, `352974_007_${String(p).padStart(3, '0')}.psd`, 'tif_gray');
+
+const CH_NG = add(null, '008話', null, 'CHAPTER0000008');
+const tifNg = add(CH_NG, 'TIF');
+// 002 だけ規格外(RGB・寸法違い)。003 が抜けていて 004 まである＝欠番も出る
+[1, 2, 4].forEach((p) => add(tifNg, `352974_008_${String(p).padStart(3, '0')}.tif`, p === 2 ? 'tif_rgb' : 'tif_gray'));
+const psdNg = add(CH_NG, 'PSD');
+add(psdNg, '352974_008_001.psd', 'tif_gray');   // psd は1枚しか無い＝突合でも出る
+
 // ---- ダミーの取引先マスタ（A:H） ----
 const master = [
   ['取引先名', '幅px', '高さpx', 'DPI', 'カラーモード', '幅判定', '高さ判定', '拡張子'],
   ['プレビュー出版（本文）', '300', '400', '350', 'グレースケール', 'ちょうど', 'ちょうど', 'tif'],
   ['コミックシーモア（合本版）', '4299', '6071', '600', 'グレースケール', 'ちょうど', 'ちょうど', 'tif'],
   ['めちゃコミック', '1200', '', '', '', '以上', 'ちょうど', 'jpg'],
+  // 自動チェックが使う行（AUTO_CHECK_PARTNER_NAME）。見本の tif_gray(300x400/350dpi) が通る条件にしてある
+  ['コミックシーモア（NTTソルマーレ）', '300', '400', '350', 'グレースケール', 'ちょうど', 'ちょうど', 'tiff'],
 ];
 
 function respond(status, body, extra) {
@@ -105,8 +122,42 @@ function fakeSheets(u, method, opts) {
   return respond(400, { error: { message: 'プレビューに無い範囲です: ' + range } });
 }
 
-const S = loadServer(SRC, ['Config.gs', 'Code.gs', 'PeopleHubSync.gs'], {
+// ---- 自動チェックのDB（見本） ----
+const TODAY = '2026-10-04';
+const SHEETS = {
+  allowedEmails: [['メールアドレス', 'メモ', '権限', '担当者名'], [EMAIL, 'プレビュー', '管理者', 'プレビュー太郎']],
+  autoCheckTitles: [
+    ['作品No', '作品名', '写植完成フォルダID', '登録日時', '最終確認'],
+    ['0007-0010', 'レンタル・マーダー〜復讐のプロ、お貸しします〜', 'PRVsrc0010', TODAY + ' 02:00', TODAY + ' 02:00'],
+    ['0007-0031', 'べつの作品〜プレビュー用〜', 'PRVsrc0031', TODAY + ' 02:00', TODAY + ' 02:00'],
+    ['0007-0044', 'ふくしゅうさん', 'PRVsrc0044', '2026-10-03 11:24', TODAY + ' 02:00'],
+    ['0007-0099', '検討中）まだ連載前の企画', '', TODAY + ' 02:00', TODAY + ' 02:00'],
+  ],
+  autoCheckState: [
+    ['作品No', '作品名', '話', '話フォルダID', '署名', 'ファイル数', '最終チェック', '結果', 'NG件数'],
+    ['0007-0010', 'レンタル・マーダー〜復讐のプロ、お貸しします〜', 43, 'PRVch00000043', '32-6a825f90', 32, '2026-10-03 02:00', '初回登録', 0],
+    ['0007-0010', 'レンタル・マーダー〜復讐のプロ、お貸しします〜', 44, 'PRVch00000044', '33-1b7ba48e', 33, TODAY + ' 02:00', 'OK', 0],
+    ['0007-0031', 'べつの作品〜プレビュー用〜', 8, 'CHAPTER0000008', '3-11111111', 3, TODAY + ' 02:00', 'NG', 2],
+    ['0007-0044', 'ふくしゅうさん', 7, 'CHAPTER0000007', '3-22222222', 3, TODAY + ' 02:00', 'OK', 0],
+    ['0007-0044', 'ふくしゅうさん', 16, 'PRVch00000016', '36-bdba2d49', 36, '2026-10-03 11:24', '初回登録', 0],
+  ],
+  autoCheckLog: [
+    ['日時', '作品No', '作品名', '話', 'ファイル数', '結果', 'NG件数', '内容', 'フォルダ', 'きっかけ'],
+    [TODAY + ' 02:00', '0007-0044', 'ふくしゅうさん', '7話', 3, 'OK', 0, '', 'https://drive.google.com/drive/folders/' + tifOk, '毎晩2:00'],
+    [TODAY + ' 02:00', '0007-0010', 'レンタル・マーダー〜復讐のプロ、お貸しします〜', '44話', 33, 'OK', 0, '', 'https://drive.google.com/drive/folders/PRVtif0044', '毎晩2:00'],
+    [TODAY + ' 02:00', '0007-0031', 'べつの作品〜プレビュー用〜', '8話', 3, 'NG', 2,
+      ['352974_008_002.tif — 幅不一致(期待 300px ちょうど / 実測 120px) / 高さ不一致(期待 400px ちょうど / 実測 160px) / DPI不一致(期待 350 / 実測 X:72 / Y:72) / カラーモード不一致(期待 グレースケール / 実測 RGB)',
+        '連番の欠番: 3(アップ漏れの可能性)', '画像 3 件 / psd 1 件 でファイル数が不一致', 'psd が無いページ: 2, 4'].join('\n'),
+      'https://drive.google.com/drive/folders/' + tifNg, '毎晩2:00'],
+  ],
+};
+
+const S = loadServer(SRC, ['Config.gs', 'Judge.gs', 'Code.gs', 'PeopleHubSync.gs', 'Notify.gs', 'AutoCheck.gs'], {
   email: EMAIL,
+  sheets: SHEETS,
+  props: {
+    AUTO_CHECK_LAST_RUN: JSON.stringify({ at: TODAY + ' 02:00', targets: 36, checked: 3, ok: 2, ng: 1, baseline: 0, skipped: 0, notifyError: '' }),
+  },
   extra: {
     UrlFetchApp: {
       fetch: (url, opts) => fakeGoogleApi(url, opts),

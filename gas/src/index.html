@@ -47,6 +47,9 @@
   .pass{color:var(--ok); font-weight:700;}
   .fail{color:var(--ng); font-weight:700;}
   .table-wrap{max-height:480px; overflow:auto; border:1px solid var(--border); border-radius:8px; margin-top:10px;}
+  /* NGの内容は長いので、この列だけ折り返す(他の列は nowrap のまま。再チェックのボタンが画面外に出ないように) */
+  .auto-detail{white-space:normal; max-width:620px; line-height:1.55;}
+  .auto-actions{white-space:nowrap;}
   .summary{font-size:13px; margin-top:10px; font-weight:600;}
   details.guide{margin-bottom:16px;}
   details.guide summary{cursor:pointer; font-weight:600; font-size:13px; color:var(--accent);}
@@ -833,7 +836,7 @@ function renderAutoCheck(d) {
       escapeHtml(r.checkedAt),
       `<span class="fail">${r.ngCount}</span>`,
       autoDetailHtml(r.detail),
-      autoFolderLink(r.folderUrl) + autoRecheckButton(r.chapterFolderId),
+      '<span class="auto-actions">' + autoFolderLink(r.folderUrl) + autoRecheckButton(r.chapterFolderId) + '</span>',
     ]));
 
   const recent = d.recent || [];
@@ -891,10 +894,12 @@ async function runRecheck(btn) {
   btn.textContent = 'チェック中...';
   try {
     const r = await callServer('api_recheckChapter', folderId);
+    // 🚩先に一覧を入れ替えてから結果を出す。逆にすると loadAutoCheck が状態表示を消してしまう
+    await loadAutoCheck(true);   // 直っていれば「直っていない話」から消える
     const head = `${r.titleNo} ${r.titleName} ${r.chapter}話 (画像${r.imageCount}件)`;
     if (r.ok) setStatus('autoStatus', `✅ ${head} 問題は見つかりませんでした。`, 'ok');
-    else setStatus('autoStatus', `⚠️ ${head} NG ${r.ngCount}件: ${r.lines.join(' / ')}`, 'error');
-    await loadAutoCheck(true);   // 一覧を入れ替える(直っていれば上の表から消える)
+    // 中身は下の表に出ているので、ここは結果だけ短く言う
+    else setStatus('autoStatus', `⚠️ ${head} まだNGが ${r.ngCount}件あります。下の表で中身を見てください。`, 'error');
   } catch (e) {
     setStatus('autoStatus', '再チェックできませんでした: ' + e.message, 'error');
     btn.disabled = false;
@@ -912,10 +917,11 @@ function autoFolderLink(url, label) {
   return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(label || 'フォルダ')}</a>`;
 }
 
-// NGの内容は「 / 」でつないで入っているので、行に分けて読みやすくする。
+// NGの内容は改行区切りで入っている(各行の中に " / " が入るので " / " では割れない)。
 function autoDetailHtml(detail) {
   if (!detail) return '';
-  return detail.split(' / ').map(x => escapeHtml(x)).join('<br>');
+  const body = String(detail).split('\n').filter(x => x.trim()).map(x => escapeHtml(x)).join('<br>');
+  return '<div class="auto-detail">' + body + '</div>';
 }
 
 function autoTableHtml(headers, rows) {
