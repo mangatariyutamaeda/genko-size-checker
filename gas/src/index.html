@@ -872,6 +872,7 @@ function autoLastRunText(last) {
   else parts.push('新しく上がった話はありませんでした');
   if (last.baseline) parts.push(`初回登録 ${last.baseline}話`);
   if (last.skipped) parts.push(`見に行けなかった作品 ${last.skipped}件`);
+  if (last.notifyError) parts.push(`⚠️ Slackに投稿できませんでした(${last.notifyError})`);
   return parts.join(' ／ ');
 }
 

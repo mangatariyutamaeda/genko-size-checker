@@ -62,6 +62,29 @@ function dryRunAutoCheck() {
   return autoCheckMain_({ notify: false, persist: false });
 }
 
+/**
+ * Slack への疎通確認。集約チャンネルへ1行だけ投稿して結果を返す。管理者のみ。
+ * スクリプトプロパティのトークンが生きているか・チャンネルに投稿できるかを、
+ * **本番と同じ経路(slackPost_)で**確かめるためのもの。毎晩の通知とは関係ない。
+ */
+function testAutoCheckNotify() {
+  requireAdmin_();
+  var token = slackToken_(NOTIFY_TOKEN_PROP);
+  if (!token) {
+    throw new Error('スクリプトプロパティ ' + NOTIFY_TOKEN_PROP + ' が未設定です。' +
+      'まんがたりWSのBotトークン(xoxb-)を入れてから、もう一度実行してください。');
+  }
+  var stamp = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
+  var res = slackPost_(token, NOTIFY_CHANNEL_ID,
+    '🔧 疎通確認 (' + stamp + ')。このチャンネルに投稿できています。毎晩' + AUTO_CHECK_HOUR + ':00の自動チェックの結果はここに出ます。');
+  if (!res.ok) {
+    throw new Error('Slackに投稿できませんでした: ' + res.error +
+      '（トークンが違う・チャンネルIDが違う・Botがチャンネルに居ない、のいずれかです）');
+  }
+  console.log('Slackへ投稿できました: ' + NOTIFY_CHANNEL_NAME);
+  return { ok: true, channel: NOTIFY_CHANNEL_NAME, url: NOTIFY_CHANNEL_URL };
+}
+
 /** 毎晩 AUTO_CHECK_HOUR 時のトリガーを設置(重複設置しない)。管理者のみ。 */
 function installAutoCheckTrigger() {
   requireAdmin_();
@@ -195,7 +218,10 @@ function saveLastRun_(stat) {
     PropertiesService.getScriptProperties().setProperty(AUTO_CHECK_LAST_RUN_PROP, JSON.stringify({
       at: Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm'),
       targets: stat.targets, checked: stat.checked, ok: stat.ok, ng: stat.ng,
-      baseline: stat.baseline, skipped: stat.skipped.length
+      baseline: stat.baseline, skipped: stat.skipped.length,
+      // 通知の失敗はログに消えて誰も気づけないので、画面に出すために残す
+      notifyError: (stat.posted && stat.posted.aggregate && !stat.posted.aggregate.ok)
+        ? String(stat.posted.aggregate.error || '') : ''
     }));
   } catch (err) {
     console.log('saveLastRun_: 記録できませんでした(動作には影響しません): ' + err);

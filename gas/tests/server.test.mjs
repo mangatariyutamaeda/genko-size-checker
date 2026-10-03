@@ -329,3 +329,62 @@ test('extractFolderId_: フォルダURL / ?id= / 素のID / 無関係な文字�
   assert.equal(ctx.extractFolderId_("x' or name contains 'a"), '');
   assert.equal(ctx.extractFolderId_(''), '');
 });
+
+// ===== 画面の「チェック実行」が通る道（判定を Judge.gs へ移したときの配線） =====
+test('api_inspectImages: 条件を渡すと解析に加えて judge(OK/NG/理由) まで返す', () => {
+  const ctx = load({ email: STAFF, allowed: [STAFF] });
+  const cmoa = { name: 'シーモア', width: '90', height: '110', dpi: '600', color: 'グレースケール', widthOp: 'ちょうど', heightOp: 'ちょうど', ext: 'tiff' };
+  const gray = FIXTURES.find(f => f.key === 'tif_gray');
+  const cmyk = FIXTURES.find(f => f.key === 'tif_cmyk');
+  ctx.__state.files['fixture_gray_0000'] = Buffer.from(gray.b64, 'base64');
+  ctx.__state.files['fixture_cmyk_0000'] = Buffer.from(cmyk.b64, 'base64');
+
+  // 条件なし（従来の呼び方）は judge を付けない＝解析だけ返す
+  const bare = plain(ctx.api_inspectImages([{ id: 'fixture_gray_0000', name: 'g.tif' }]));
+  assert.ok(bare[0].spec, '解析はできている');
+  assert.equal(bare[0].judge, undefined);
+
+  // 条件つき（画面がいま呼んでいる形）は judge が付く
+  const judged = plain(ctx.api_inspectImages([
+    { id: 'fixture_gray_0000', name: 'g.tif' },
+    { id: 'fixture_cmyk_0000', name: 'c.tif' },
+    { id: 'fixture_gray_0000', name: 'wrong.jpg' },
+  ], cmoa));
+  assert.equal(judged.length, 3);
+  assert.equal(judged[0].judge.ok, false, 'グレスケだが寸法が条件と違う');
+  assert.match(judged[0].judge.reason, /幅不一致/);
+  assert.equal(judged[0].judge.expected, '幅 90px ちょうど / 高さ 110px ちょうど / 600dpi / グレースケール / 拡張子 tiff');
+  assert.match(judged[1].judge.reason, /カラーモード不一致/, 'CMYKはNG');
+  assert.match(judged[2].judge.reason, /拡張子不一致/, '拡張子はファイル名で見る');
+});
+
+test('api_setChecks: 画面が渡すファイル一覧からセット整合性の警告を返す', () => {
+  const ctx = load({ email: STAFF, allowed: [STAFF] });
+  const clean = plain(ctx.api_setChecks([
+    { name: 'p001.tif', kind: 'image', root: 'F' },
+    { name: 'p002.tif', kind: 'image', root: 'F' },
+  ]));
+  assert.equal(clean.ok, true);
+
+  const dirty = plain(ctx.api_setChecks([
+    { name: 'p001.tif', kind: 'image', root: 'F' },
+    { name: 'p003.tif', kind: 'image', root: 'F' },
+    { name: 'p001.psd', kind: 'psd', root: 'F' },
+  ]));
+  assert.equal(dirty.ok, false);
+  const items = dirty.warnings.flatMap(w => w.items).join(' / ');
+  assert.match(items, /連番の欠番: 2/);
+  assert.match(items, /psd が無いページ: 3/);
+});
+
+test('api_listFolders: 画像/psd/対象外の振り分け(kind)をサーバが付ける', () => {
+  const ctx = load({ email: STAFF, allowed: [STAFF] });
+  const folder = '1AbCdEfGhIjKlMnOp';
+  ctx.__state.responses[ctx.buildDriveListUrl_(folder, '')] = { status: 200, body: { files: [
+    { id: 'a', name: 'p001.tif', mimeType: 'image/tiff', size: '10' },
+    { id: 'b', name: 'p001.psd', mimeType: 'image/vnd.adobe.photoshop', size: '20' },
+    { id: 'c', name: 'memo.txt', mimeType: 'text/plain', size: '1' },
+  ] } };
+  const r = plain(ctx.api_listFolders([folder], false));
+  assert.deepEqual(r.files.map(f => [f.name, f.kind]), [['p001.tif', 'image'], ['p001.psd', 'psd'], ['memo.txt', '']]);
+});

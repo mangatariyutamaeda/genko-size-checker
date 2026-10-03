@@ -812,6 +812,48 @@ test('saveLastRun_: 静かな晩でも「動いた」が画面に出せる', () 
     getProperty: (k) => (k in store ? store[k] : (k === 'DB_SPREADSHEET_ID' ? 'DB' : null)),
     setProperty: (k, v) => { store[k] = v; },
   });
-  c.saveLastRun_({ targets: 36, checked: 0, ok: 0, ng: 0, baseline: 0, skipped: [] });
-  deepEq(c.loadLastRun_(), { at: '2026-10-05 02:00', targets: 36, checked: 0, ok: 0, ng: 0, baseline: 0, skipped: 0 });
+  c.saveLastRun_({ targets: 36, checked: 0, ok: 0, ng: 0, baseline: 0, skipped: [], posted: { aggregate: null, titles: [] } });
+  deepEq(c.loadLastRun_(), { at: '2026-10-05 02:00', targets: 36, checked: 0, ok: 0, ng: 0, baseline: 0, skipped: 0, notifyError: '' });
+});
+
+test('saveLastRun_: Slackに投稿できなかったことを画面に出せるよう残す', () => {
+  const c = load({ props: { DB_SPREADSHEET_ID: 'DB' }, now: '2026-10-05 02:00' });
+  const store = {};
+  c.PropertiesService.getScriptProperties = () => ({
+    getProperty: (k) => (k in store ? store[k] : (k === 'DB_SPREADSHEET_ID' ? 'DB' : null)),
+    setProperty: (k, v) => { store[k] = v; },
+  });
+  c.saveLastRun_({ targets: 36, checked: 1, ok: 0, ng: 1, baseline: 0, skipped: [],
+    posted: { aggregate: { ok: false, error: 'invalid_auth' }, titles: [] } });
+  assert.equal(plain(c.loadLastRun_()).notifyError, 'invalid_auth');
+
+  c.saveLastRun_({ targets: 36, checked: 1, ok: 1, ng: 0, baseline: 0, skipped: [],
+    posted: { aggregate: { ok: true, error: '' }, titles: [] } });
+  assert.equal(plain(c.loadLastRun_()).notifyError, '', '成功したときは空');
+});
+
+test('testAutoCheckNotify: トークンが無ければ投稿せずに止める', () => {
+  const c = load({ props: { DB_SPREADSHEET_ID: 'DB' } });
+  c.currentEmail_ = () => 'mangatari.yuta.maeda@gmail.com';
+  c.isAdmin_ = () => true;
+  assert.throws(() => c.testAutoCheckNotify(), /SLACK_BOT_TOKEN_MANGATARI が未設定/);
+  assert.equal(c.__state.posts.length, 0);
+});
+
+test('testAutoCheckNotify: 本番と同じ経路で集約チャンネルに1行だけ投稿する', () => {
+  const c = load({ props: { DB_SPREADSHEET_ID: 'DB', SLACK_BOT_TOKEN_MANGATARI: 'xoxb-x' }, now: '2026-10-03 14:00' });
+  c.currentEmail_ = () => 'mangatari.yuta.maeda@gmail.com';
+  c.isAdmin_ = () => true;
+  const r = plain(c.testAutoCheckNotify());
+  assert.equal(r.ok, true);
+  assert.equal(c.__state.posts.length, 1);
+  assert.equal(c.__state.posts[0].payload.channel, c.NOTIFY_CHANNEL_ID);
+  assert.match(c.__state.posts[0].payload.text, /疎通確認/);
+});
+
+test('testAutoCheckNotify: Slackが断ったら理由を添えて止める', () => {
+  const c = load({ props: { DB_SPREADSHEET_ID: 'DB', SLACK_BOT_TOKEN_MANGATARI: 'xoxb-x' }, slackResponse: { ok: false, error: 'invalid_auth' } });
+  c.currentEmail_ = () => 'mangatari.yuta.maeda@gmail.com';
+  c.isAdmin_ = () => true;
+  assert.throws(() => c.testAutoCheckNotify(), /invalid_auth/);
 });
