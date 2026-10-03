@@ -717,3 +717,28 @@ test('通し: PSDフォルダが無い作品でも落ちない(突合が出な�
   assert.equal(stat.ng, 0);
   assert.match(c.__state.posts[0].payload.text, /✅ 0007-0066 psd無し作品 1話 — 画像2件 すべてOK/);
 });
+
+test('isTimestampHeader_: 日時の列だけ文字列書式にする', () => {
+  const c = load();
+  assert.equal(c.isTimestampHeader_('登録日時'), true);
+  assert.equal(c.isTimestampHeader_('最終確認'), true);
+  assert.equal(c.isTimestampHeader_('最終チェック'), true);
+  assert.equal(c.isTimestampHeader_('日時'), true);
+  assert.equal(c.isTimestampHeader_('作品No'), false);
+  assert.equal(c.isTimestampHeader_('ファイル数'), false);
+});
+
+test('titles: 登録日時が未来にずれていたら直す(日付解釈で9時間ずれた分の自己修復)', () => {
+  const c = load({ props: { DB_SPREADSHEET_ID: 'DB' }, now: '2026-10-03 13:29' });
+  const titles = c.loadAutoCheckTitles_();
+  c.upsertAutoCheckTitle_(titles, { no: '0007-0044', name: 'ふくしゅうさん' }, 'SRC1');
+  // シートが日付として解釈して +9時間 ずれた状態を作る
+  titles.byNo['0007-0044'].registeredAt = '2026-10-03 22:29';
+  c.upsertAutoCheckTitle_(titles, { no: '0007-0044', name: 'ふくしゅうさん' }, 'SRC1');
+  assert.equal(titles.byNo['0007-0044'].registeredAt, '2026-10-03 13:29', 'いまに揃え直す');
+
+  // 過去の正しい登録日時は動かさない
+  titles.byNo['0007-0044'].registeredAt = '2026-09-01 02:00';
+  c.upsertAutoCheckTitle_(titles, { no: '0007-0044', name: 'ふくしゅうさん' }, 'SRC1');
+  assert.equal(titles.byNo['0007-0044'].registeredAt, '2026-09-01 02:00');
+});

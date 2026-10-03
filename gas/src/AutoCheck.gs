@@ -558,6 +558,8 @@ function upsertAutoCheckTitle_(titles, title, sourceFolderId) {
     titles.rows.push(row);
     titles.byNo[title.no] = row;
   }
+  // 登録日時が空、または「いま」より後になっていたら直す(日付解釈でずれた分の自己修復)
+  if (!row.registeredAt || row.registeredAt > now) row.registeredAt = now;
   row.titleName = title.name;
   row.folderId = sourceFolderId || '';
   row.seenAt = now;
@@ -653,7 +655,12 @@ function appendAutoCheckLog_(results) {
   if (over > 0) sheet.deleteRows(2, over);
 }
 
-/** DBのタブを用意する(冪等)。 */
+/**
+ * DBのタブを用意する(冪等)。
+ * 🚩日時の列は**書式を文字列(@)にする**。そうしないとシートが「2026-10-03 11:24」を日付として
+ *   解釈し、読み直すたびにスプレッドシートのタイムゾーン差ぶん(9時間)ずれていく
+ *   (2026-10-03 に登録日時が 11:24 → 20:24 になって発覚)。毎回かけ直して直す。
+ */
 function autoCheckSheet_(name, header) {
   var config = getConfig_();
   if (!config.dbSpreadsheetId) throw new Error(dbMissingMessage_());
@@ -663,7 +670,20 @@ function autoCheckSheet_(name, header) {
     sheet.getRange(1, 1, 1, header.length).setValues([header]);
     sheet.setFrozenRows(1);
   }
+  for (var i = 0; i < header.length; i++) {
+    if (!isTimestampHeader_(header[i])) continue;
+    try {
+      sheet.getRange(1, i + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
+    } catch (err) {
+      console.log('autoCheckSheet_: ' + name + ' の「' + header[i] + '」を文字列書式にできませんでした: ' + err);
+    }
+  }
   return sheet;
+}
+
+/** 日時を入れる列か(見出しで判断する)。 */
+function isTimestampHeader_(label) {
+  return ['日時', '登録日時', '最終確認', '最終チェック'].indexOf(String(label || '')) !== -1;
 }
 
 // ============================================================
