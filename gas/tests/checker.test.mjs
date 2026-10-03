@@ -78,7 +78,8 @@ const pieces = [
   shimEscapeHtml,
   extractFn('fileExt'), extractFn('normExt'), extractFn('chunkArray'),
   extractFn('autoLastRunText'), extractFn('autoFolderLink'), extractFn('autoRecheckButton'),
-  extractFn('autoDetailHtml'), extractFn('autoTableHtml'),
+  extractFn('autoDetailRows'), extractFn('autoDetailButton'), extractFn('autoChapterLabel'),
+  extractFn('autoDetailCsv'), extractFn('autoTableHtml'),
   extractFn('setupNoticeText'),
   extractFn('toSpec'), extractFn('describeSpec'),
   extractFn('buildMasterErrorNotifyText'),
@@ -86,7 +87,7 @@ const pieces = [
   extractFn('getSeenNewsId'), extractFn('hasUnreadNews'),
 ];
 const exportNames = ['fileExt', 'normExt', 'chunkArray', 'setupNoticeText',
-  'autoLastRunText', 'autoFolderLink', 'autoRecheckButton', 'autoDetailHtml', 'autoTableHtml',
+  'autoLastRunText', 'autoFolderLink', 'autoRecheckButton', 'autoDetailRows', 'autoDetailButton', 'autoChapterLabel', 'autoDetailCsv', 'autoTableHtml',
   'toSpec', 'describeSpec', 'buildMasterErrorNotifyText',
   'NEWS', 'getSeenNewsId', 'hasUnreadNews', '__setSeenNews'];
 const C = new Function(pieces.join('\n\n') + '\nreturn {' + exportNames.join(',') + '};')();
@@ -172,18 +173,32 @@ check('集計は画面でやらない(サーバの Judge.gs / AutoCheck.gs が�
   check('フォルダURLが無ければリンクを出さない', C.autoFolderLink(''), '');
   check('フォルダリンク', C.autoFolderLink('https://drive.google.com/drive/folders/X'),
     '<a href="https://drive.google.com/drive/folders/X" target="_blank" rel="noopener">フォルダ</a>');
-  check('NGの内容は1件1行にして、この列だけ折り返す(区切りは改行)',
-    C.autoDetailHtml('a — 幅不一致(期待 300px ちょうど / 実測 120px)\n連番の欠番: 7'),
-    '<div class="auto-detail">a — 幅不一致(期待 300px ちょうど / 実測 120px)<br>連番の欠番: 7</div>');
+  // 一覧は件数だけ、中身は「詳細」ボタンのモーダルで見る
+  check('詳細は「ファイル名 — 理由」と、ファイルに紐づかない警告に分ける',
+    C.autoDetailRows('a.tif — 幅不一致(期待 300px ちょうど / 実測 120px)\n連番の欠番: 7'),
+    [{ file: 'a.tif', reason: '幅不一致(期待 300px ちょうど / 実測 120px)' }, { file: '', reason: '連番の欠番: 7' }]);
+  check('詳細が空なら行なし', C.autoDetailRows(''), []);
+  check('詳細ボタンはどの行かを持つ', C.autoDetailButton('u0').includes('data-detail="u0"'), true);
+  check('話の見出し', C.autoChapterLabel({ chapter: 8 }), '8話');
+  check('話の見出し(ログは「8話」で入っている)', C.autoChapterLabel({ chapter: '8話' }), '8話');
   check('再チェックのボタンは話フォルダIDを持つ', C.autoRecheckButton('CHAPTER000006').includes('data-folder="CHAPTER000006"'), true);
   check('フォルダIDが無ければボタンを出さない', C.autoRecheckButton(''), '');
-  check('内容が空なら空', C.autoDetailHtml(''), '');
+  // CSVは1行＝1件のNG。作品・話・日時を各行に持たせて、他の作品の分と混ぜても読めるようにする
+  const csv = C.autoDetailCsv({ at: '2026-10-04 02:00', titleNo: '0007-0031', titleName: 'べつの作品', chapter: 8,
+    result: 'NG', ngCount: 2, detail: 'a.tif — 幅不一致\n連番の欠番: 7' }).split('\r\n');
+  check('CSVの見出し', csv[0], '日時,作品No,作品名,話,結果,NG件数,ファイル,内容');
+  check('CSVの1行目', csv[1], '"2026-10-04 02:00","0007-0031","べつの作品","8話","NG","2","a.tif","幅不一致"');
+  check('CSVの2行目(ファイルに紐づかない警告)', csv[2], '"2026-10-04 02:00","0007-0031","べつの作品","8話","NG","2","","連番の欠番: 7"');
+  check('CSV: NGが無い話は「問題は見つかりませんでした」の1行',
+    C.autoDetailCsv({ at: 'x', titleNo: 'n', titleName: 't', chapter: 1, result: 'OK', ngCount: 0, detail: '' }).split('\r\n')[1],
+    '"x","n","t","1話","OK","0","","問題は見つかりませんでした"');
   check('見出しはエスケープし、セルは渡されたHTMLをそのまま入れる(エスケープは呼ぶ側の責務)',
     C.autoTableHtml(['作品<b>'], [['<span class="ok">OK</span>']]),
     '<tr><th>作品&lt;b&gt;</th></tr><tr><td><span class="ok">OK</span></td></tr>');
   // 作品名は人が入力するので、描画側で必ず escapeHtml を通していること
   check('作品名は escapeHtml を通している', /escapeHtml\(r\.titleName\)/.test(SRC), true);
-check('NGの内容も escapeHtml を通している', SRC.includes('.map(x => escapeHtml(x)).join(\'<br>\')'), true);
+check('CSVとPDFで出せる(普通のチェックと同じように)', SRC.includes('autoDetailCsv') && SRC.includes('autoDetailPdfHtml'), true);
+check('詳細の中身も escapeHtml を通している', /escapeHtml\(r\.reason\)/.test(SRC), true);
 }
 
 // ===== お知らせ(最新News)の未読判定 =====
