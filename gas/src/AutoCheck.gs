@@ -456,15 +456,17 @@ function recheckTitle_(titleNo) {
   }
 
   var title = { no: no, name: known.titleName };
-  var chapters = driveChildren_(known.folderId).folders
+  var state = loadAutoCheckState_();
+  var all = driveChildren_(known.folderId).folders
     .map(function (f) { return { id: f.id, name: f.name, number: chapterNumber_(f.name) }; })
     .filter(function (f) { return f.number != null; })
-    .sort(function (a, b) { return b.number - a.number; })
-    .slice(0, AUTO_CHECK_RECENT_CHAPTERS);
-  if (!chapters.length) throw new Error('話フォルダ(N話)が見つかりませんでした。');
+    .sort(function (a, b) { return b.number - a.number; });
+  if (!all.length) throw new Error('話フォルダ(N話)が見つかりませんでした。');
+  // 見る話の選び方は毎晩の走査と同じにする(新しい方から数話＋前回NGのままの話)。
+  // 違うのは「署名が変わっていなくても見る」ところだけ。
+  var chapters = pickCandidateChapters_(all, state, AUTO_CHECK_RECENT_CHAPTERS);
 
   var spec = loadAutoCheckSpec_();
-  var state = loadAutoCheckState_();
   var results = [];
   chapters.sort(function (a, b) { return a.number - b.number; }).forEach(function (folder) {
     var chapter = readChapter_(title, folder);

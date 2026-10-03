@@ -998,3 +998,27 @@ test('作品ごとチェック: 未登録の作品・写植フォルダが無い
   c.saveAutoCheckTitles_(titles);
   assert.throws(() => c.recheckTitle_('0007-0099'), /写植フォルダ.*見つかっていません/);
 });
+
+test('作品ごとチェック: 見る話の選び方は毎晩の走査と同じ(新しい方から数話＋前回NGの話)', () => {
+  const tree = {
+    WORKA: { folders: [{ id: 'SHA', name: '430_写植' }], files: [] },
+    SHA: { folders: [{ id: 'SRCA', name: '200_写植依頼→完成ファイル' }], files: [] },
+    SRCA: { folders: [1, 2, 3, 4, 5, 6].map(n => ({ id: 'CHAPTERA00000' + n, name: '00' + n + '話' })), files: [] },
+  };
+  [1, 2, 3, 4, 5, 6].forEach((n) => {
+    tree['CHAPTERA00000' + n] = { folders: [], files: [{ id: 'fileOK0000' + (50 + n), name: '00' + n + '_001.tif', mimeType: 'image/tiff', size: String(OK_TIFF.length) }] };
+  });
+  const files = {};
+  [1, 2, 3, 4, 5, 6].forEach((n) => { files['fileOK0000' + (50 + n)] = OK_TIFF; });
+  const titles = [{ no: '0007-0026', formalName: 'ヴェンデッタ・クエスト', workStatus: '４．連載中（継続）', driveFolderId: 'WORKA' }];
+  const c = loadWired({ tree, titles, files });
+
+  c.autoCheckMain_({ notify: true });                       // 初回登録: 新しい方から4話(3〜6話)
+  // 1話を前回NGだったことにする
+  const state = c.loadAutoCheckState_();
+  c.upsertAutoCheckState_(state, { titleNo: '0007-0026', titleName: 'ヴェンデッタ・クエスト', number: 1, folderId: 'CHAPTERA000001', signature: 'x', files: [{}] }, { result: 'NG', ngCount: 1 });
+  c.saveAutoCheckState_(state);
+
+  const r = plain(c.recheckTitle_('0007-0026'));
+  deepEq(r.results.map(x => x.chapter), [1, 3, 4, 5, 6], '新しい方から4話＋NGのままの1話');
+});
