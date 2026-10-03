@@ -107,6 +107,7 @@
 <div class="tabs">
   <button class="tab-btn active" id="tabBtnNews" data-view="view-news">📢 お知らせ<span id="newsBadge" class="news-badge" style="display:none;">NEW</span></button>
   <button class="tab-btn" id="tabBtnRun" data-view="view-run">チェック実行</button>
+  <button class="tab-btn" id="tabBtnAuto" data-view="view-auto">🤖 自動チェック</button>
   <button class="tab-btn" id="tabBtnMaster" data-view="view-master">取引先マスタ管理</button>
 </div>
 
@@ -126,6 +127,43 @@
     <div class="news-date" id="newsModalDate"></div>
     <h3 id="newsModalTitle" style="margin:2px 0 12px; font-size:16px;"></h3>
     <div id="newsModalBody"></div>
+  </div>
+</div>
+
+<div class="view" id="view-auto">
+  <div class="card">
+    <h2>🤖 自動チェック <span class="badge" id="autoHour">毎晩2:00</span></h2>
+    <div class="sub">
+      コミックシーモアの連載中作品の写植フォルダ(430_写植 → 200_写植依頼→完成ファイル)を毎晩見て、
+      新しく上がった話だけを自動でチェックした結果です。結果は Slack にも出ます。
+    </div>
+    <div class="row" style="gap:10px; align-items:center; margin-top:10px;">
+      <button id="autoReloadBtn" class="secondary">最新の状態にする</button>
+      <a id="autoChannelLink" href="#" target="_blank" rel="noopener">Slackのチャンネルを開く →</a>
+    </div>
+    <div id="autoStatus" class="status"></div>
+    <div id="autoLastRun" class="meta" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="card" id="autoUnresolvedCard" style="display:none;">
+    <h2>直っていない話 <span class="badge" id="autoUnresolvedCount"></span></h2>
+    <div class="sub">前の晩までにNGが出て、まだファイルが変わっていない話です。直すと次の晩に自動でOKになります。</div>
+    <div class="table-wrap" style="margin-top:10px;"><table id="autoUnresolvedTable"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>最近のチェック結果</h2>
+    <div class="sub">新しい順。1行＝1話分のチェックです。</div>
+    <div class="table-wrap" style="margin-top:10px;"><table id="autoRecentTable"></table></div>
+  </div>
+
+  <div class="card">
+    <h2>見ている作品 <span class="badge" id="autoWorksCount"></span></h2>
+    <div class="sub">取引先・作品マスタの「コミックシーモア」で、連載状況が完結・制作中止でない作品です。</div>
+    <details style="margin-top:10px;">
+      <summary style="cursor:pointer;">一覧を開く</summary>
+      <div class="table-wrap" style="margin-top:10px;"><table id="autoWorksTable"></table></div>
+    </details>
   </div>
 </div>
 
@@ -320,6 +358,7 @@ function showView(viewId) {
 }
 let lastTabView = 'view-run';
 $('tabBtnRun').addEventListener('click', () => { lastTabView = 'view-run'; showView('view-run'); });
+$('tabBtnAuto').addEventListener('click', () => { lastTabView = 'view-auto'; showView('view-auto'); loadAutoCheck(); });
 $('tabBtnMaster').addEventListener('click', () => { lastTabView = 'view-master'; showView('view-master'); });
 $('tabBtnNews').addEventListener('click', () => { showNews(); });
 $('newsProceedBtn').addEventListener('click', () => { markNewsRead(); lastTabView = 'view-run'; showView('view-run'); });
@@ -327,6 +366,18 @@ $('newsProceedBtn').addEventListener('click', () => { markNewsRead(); lastTabVie
 // ---------- お知らせ(最新アップデート) ----------
 // 新しいものを先頭に。id を変えると「NEW」バッジが再点灯し、次回ログイン時に自動表示される。
 const NEWS = [
+  {
+    id: '2026-10-03-auto-check',
+    date: '2026-10-03',
+    title: '写植データの自動チェックを始めました（毎晩2:00）',
+    body: [
+      'コミックシーモアの連載中作品の写植フォルダ(430_写植 → 200_写植依頼→完成ファイル)を毎晩2:00に見て、新しく上がった話だけを自動でチェックします。手でフォルダを貼らなくても、翌朝には結果が出ています。',
+      '見るのは今までと同じ中身です。寸法(5186×7323)・600dpi・グレースケール・tiff と、同じページの重複・連番の欠番・psdとの突合。',
+      '結果は「🤖 自動チェック」タブで見られます。直っていない話・最近のチェック結果・見ている作品が並びます。ファイルを直すと、次の晩に自動でもう一度チェックされて ✅ になります。',
+      'Slack にも出ます(まんがたりの #auto_tool_direction_top_cmoa_写植データ自動チェック)。エラーのときは担当のディレクター・編集者・アサイン責任者にメンションが飛びます。',
+      '新しく上がった話が無い晩は何も投稿されません。静かな晩は「異常なし」ではなく「新しいデータが無かった」という意味です。',
+    ],
+  },
   {
     id: '2026-09-16-gas-beta',
     date: '2026-09-16',
@@ -745,6 +796,103 @@ function chunkArray(items, size) {
   return out;
 }
 
+
+// ---------- 自動チェック(毎晩2:00)の結果を見る ----------
+// サーバ api_autoCheckSummary が DB(autoCheckTitles / autoCheckState / autoCheckLog)から組み立てたものを出す。
+// 画面は表示だけ。判定も集計もサーバ側(Judge.gs / AutoCheck.gs)が正本。
+let autoLoaded = false;
+
+async function loadAutoCheck(force) {
+  if (autoLoaded && !force) return;
+  setStatus('autoStatus', '読み込み中...', '');
+  try {
+    const d = await callServer('api_autoCheckSummary');
+    renderAutoCheck(d);
+    autoLoaded = true;
+    setStatus('autoStatus', '', '');
+  } catch (e) {
+    setStatus('autoStatus', '読み込めませんでした: ' + e.message, 'error');
+  }
+}
+
+function renderAutoCheck(d) {
+  $('autoHour').textContent = `毎晩${d.hour}:00`;
+  const link = $('autoChannelLink');
+  link.href = d.channel.url;
+  link.textContent = `Slackの ${d.channel.name} を開く →`;
+  $('autoLastRun').textContent = autoLastRunText(d.lastRun);
+
+  const unresolved = d.unresolved || [];
+  $('autoUnresolvedCard').style.display = unresolved.length ? 'block' : 'none';
+  $('autoUnresolvedCount').textContent = `${unresolved.length}件`;
+  $('autoUnresolvedTable').innerHTML = autoTableHtml(
+    ['作品', '話', '検出', 'NG件数', ''],
+    unresolved.map(r => [
+      `${escapeHtml(r.titleNo)} ${escapeHtml(r.titleName)}`,
+      `${r.chapter}話`,
+      escapeHtml(r.checkedAt),
+      `<span class="fail">${r.ngCount}</span>`,
+      autoFolderLink(r.folderUrl),
+    ]));
+
+  const recent = d.recent || [];
+  $('autoRecentTable').innerHTML = recent.length
+    ? autoTableHtml(['日時', '作品', '話', '枚数', '結果', '内容', ''],
+      recent.map(r => [
+        escapeHtml(r.at),
+        `${escapeHtml(r.titleNo)} ${escapeHtml(r.titleName)}`,
+        escapeHtml(r.chapter),
+        r.fileCount == null ? '' : r.fileCount,
+        r.result === 'OK' ? '<span class="ok">OK</span>' : `<span class="fail">NG ${r.ngCount}</span>`,
+        autoDetailHtml(r.detail),
+        autoFolderLink(r.folderUrl),
+      ]))
+    : '<tr><td class="meta">まだチェックした話がありません。新しい写植データが上がった翌朝から並びます。</td></tr>';
+
+  const works = d.works || [];
+  $('autoWorksCount').textContent = `${works.length}件`;
+  $('autoWorksTable').innerHTML = autoTableHtml(
+    ['作品No', '作品名', '見ている話数', '最後のチェック', 'NGのまま', ''],
+    works.map(w => [
+      escapeHtml(w.titleNo),
+      escapeHtml(w.titleName || '(名称未設定)'),
+      w.chapters || 0,
+      escapeHtml(w.lastCheckedAt || '—'),
+      w.ng ? `<span class="fail">${w.ng}話</span>` : '—',
+      autoFolderLink(w.folderUrl, '写植フォルダ'),
+    ]));
+}
+
+// 最後に動いたのはいつか。静かな晩(新しい話なし)でも動いていることが分かるようにする。
+function autoLastRunText(last) {
+  if (!last) return '自動実行の記録はまだありません(初回は設置した翌朝2:00に動きます)。';
+  const parts = [`最後に動いたのは ${last.at}`];
+  parts.push(`対象 ${last.targets}作品`);
+  if (last.checked) parts.push(`チェック ${last.checked}話(OK ${last.ok} / NG ${last.ng})`);
+  else parts.push('新しく上がった話はありませんでした');
+  if (last.baseline) parts.push(`初回登録 ${last.baseline}話`);
+  if (last.skipped) parts.push(`見に行けなかった作品 ${last.skipped}件`);
+  return parts.join(' ／ ');
+}
+
+function autoFolderLink(url, label) {
+  if (!url) return '';
+  return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(label || 'フォルダ')}</a>`;
+}
+
+// NGの内容は「 / 」でつないで入っているので、行に分けて読みやすくする。
+function autoDetailHtml(detail) {
+  if (!detail) return '';
+  return detail.split(' / ').map(x => escapeHtml(x)).join('<br>');
+}
+
+function autoTableHtml(headers, rows) {
+  const head = '<tr>' + headers.map(h => '<th>' + escapeHtml(h) + '</th>').join('') + '</tr>';
+  const body = rows.map(cells => '<tr>' + cells.map(c => '<td>' + c + '</td>').join('') + '</tr>').join('');
+  return head + body;
+}
+
+$('autoReloadBtn').addEventListener('click', () => loadAutoCheck(true));
 
 // ---------- Concurrency-limited runner ----------
 async function runPool(items, worker, concurrency, onProgress) {

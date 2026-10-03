@@ -181,7 +181,93 @@ function autoCheckMain_(options) {
     posted: posted
   };
   console.log('写植データ自動チェック: ' + JSON.stringify(stat));
+  if (persist) saveLastRun_(stat);
   return stat;
+}
+
+/**
+ * 「最後に動いた」記録をスクリプトプロパティに残す。
+ * 新しい話が無くて Slack が無音の晩でも、画面に動いていると出せるようにするため。
+ * 失敗しても本体は落とさない。
+ */
+function saveLastRun_(stat) {
+  try {
+    PropertiesService.getScriptProperties().setProperty(AUTO_CHECK_LAST_RUN_PROP, JSON.stringify({
+      at: Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm'),
+      targets: stat.targets, checked: stat.checked, ok: stat.ok, ng: stat.ng,
+      baseline: stat.baseline, skipped: stat.skipped.length
+    }));
+  } catch (err) {
+    console.log('saveLastRun_: 記録できませんでした(動作には影響しません): ' + err);
+  }
+}
+
+/** 最後に動いた記録を読む。無ければ null。 */
+function loadLastRun_() {
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty(AUTO_CHECK_LAST_RUN_PROP);
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/** autoCheckLog の新しい方から limit 件を読む(画面用)。 */
+function loadAutoCheckLog_(limit) {
+  var sheet = autoCheckSheet_(AUTO_CHECK_LOG_SHEET, AUTO_CHECK_LOG_HEADER);
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var take = Math.min(limit || AUTO_CHECK_VIEW_LOG_ROWS, lastRow - 1);
+  var from = lastRow - take + 1;
+  return sheet.getRange(from, 1, take, AUTO_CHECK_LOG_HEADER.length).getValues().map(function (r) {
+    return {
+      at: r[0] instanceof Date ? Utilities.formatDate(r[0], 'Asia/Tokyo', 'yyyy-MM-dd HH:mm') : String(r[0] || ''),
+      titleNo: String(r[1] || ''), titleName: String(r[2] || ''), chapter: String(r[3] || ''),
+      fileCount: r[4] === '' || r[4] == null ? null : Number(r[4]),
+      result: String(r[5] || ''), ngCount: r[6] === '' || r[6] == null ? 0 : Number(r[6]),
+      detail: String(r[7] || ''), folderUrl: String(r[8] || '')
+    };
+  }).reverse();   // 新しい順
+}
+
+/**
+ * 画面の「自動チェック」タブに出す中身を組み立てる(純粋関数。I/Oは呼ぶ側)。
+ * @return {{unresolved:!Array<Object>, works:!Array<Object>}}
+ */
+function buildAutoCheckView_(titles, state) {
+  var byTitle = {};
+  (state.rows || []).forEach(function (r) {
+    if (!byTitle[r.titleNo]) byTitle[r.titleNo] = { chapters: 0, ng: 0, lastCheckedAt: '', lastResult: '' };
+    var t = byTitle[r.titleNo];
+    t.chapters++;
+    if (r.result === 'NG') t.ng++;
+    if (r.checkedAt > t.lastCheckedAt) { t.lastCheckedAt = r.checkedAt; t.lastResult = r.result; }
+  });
+
+  var unresolved = (state.rows || []).filter(function (r) { return r.result === 'NG'; })
+    .sort(function (a, b) {
+      if (a.titleNo !== b.titleNo) return a.titleNo < b.titleNo ? -1 : 1;
+      return (a.chapter || 0) - (b.chapter || 0);
+    })
+    .map(function (r) {
+      return {
+        titleNo: r.titleNo, titleName: r.titleName, chapter: r.chapter,
+        checkedAt: r.checkedAt, ngCount: r.ngCount, folderUrl: driveFolderUrl_(r.folderId)
+      };
+    });
+
+  var works = (titles.rows || []).slice().sort(function (a, b) {
+    return a.titleNo < b.titleNo ? -1 : (a.titleNo > b.titleNo ? 1 : 0);
+  }).map(function (t) {
+    var sum = byTitle[t.titleNo] || { chapters: 0, ng: 0, lastCheckedAt: '', lastResult: '' };
+    return {
+      titleNo: t.titleNo, titleName: t.titleName, seenAt: t.seenAt,
+      folderUrl: t.folderId ? driveFolderUrl_(t.folderId) : '',
+      chapters: sum.chapters, ng: sum.ng,
+      lastCheckedAt: sum.lastCheckedAt, lastResult: sum.lastResult
+    };
+  });
+  return { unresolved: unresolved, works: works };
 }
 
 /** 取引先マスタ(MASTER_SHEET_ID)から コミックシーモア の条件を読む。無ければ例外。 */
@@ -648,7 +734,8 @@ function appendAutoCheckLog_(results) {
   var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
   var rows = results.map(function (r) {
     return [now, r.titleNo, r.titleName, r.chapter + '話', r.fileCount,
-      r.ok ? 'OK' : 'NG', r.ngCount, r.lines.join(' / ').slice(0, 2000), NOTIFY_CHANNEL_NAME];
+      r.ok ? 'OK' : 'NG', r.ngCount, r.lines.join(' / ').slice(0, 2000),
+      driveFolderUrl_(r.folderId), NOTIFY_CHANNEL_NAME];
   });
   sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, AUTO_CHECK_LOG_HEADER.length).setValues(rows);
   var over = sheet.getLastRow() - 1 - AUTO_CHECK_LOG_MAX_ROWS;

@@ -80,7 +80,7 @@ function load(state = {}) {
   if (s.noHeaderKit) delete ctx.AccessControl.headerKit;
   vm.createContext(ctx);
   // Judge.gs も読む(Code.gs の api_listFolders/api_inspectImages が判定ロジックを使う)
-  for (const f of ['Config.gs', 'Judge.gs', 'Code.gs', 'PeopleHubSync.gs']) {
+  for (const f of ['Config.gs', 'Judge.gs', 'Code.gs', 'PeopleHubSync.gs', 'Notify.gs', 'AutoCheck.gs']) {
     vm.runInContext(fs.readFileSync(path.join(SRC, f), 'utf8'), ctx, { filename: f });
   }
   if (s.noDbDefault) ctx.DB_SPREADSHEET_ID_DEFAULT = '';
@@ -181,7 +181,8 @@ test('isAllowed_: fail-closed(DB未設定・ライブラリ例外は拒否)、AD
 
 test('画面用API・管理用関数は、未登録の人/管理者以外に実行させない(google.script.run から呼べるため)', () => {
   const calls = { api_listFolders: [['1AbCdEfGhIjKlMnOp'], false], api_inspectImages: [[{ id: '1AbCdEfGhIjKlMnOp', name: 'a.tif' }]],
-    api_loadMaster: [], api_saveMasterRow: [['A', '1', '', '', '', 'ちょうど', 'ちょうど', '']], api_deleteMasterRow: [2, 'A'] };
+    api_loadMaster: [], api_saveMasterRow: [['A', '1', '', '', '', 'ちょうど', 'ちょうど', '']], api_deleteMasterRow: [2, 'A'],
+    api_setChecks: [[{ name: 'a.tif', kind: 'image', root: 'F' }]], api_autoCheckSummary: [] };
   for (const [fn, args] of Object.entries(calls)) {
     const ctx = load({ email: 'stranger@gmail.com' });
     assert.throws(() => ctx[fn](...args), /権限がありません/, fn);

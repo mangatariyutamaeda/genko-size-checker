@@ -67,9 +67,18 @@ const localStorage = {
   removeItem: (k) => { delete __store[k]; },
 };
 function __setSeenNews(id) { if (id == null) delete __store['msc_seen_news']; else __store['msc_seen_news'] = String(id); }`;
+// escapeHtml は正規表現リテラルに " と ' を含み、この抽出器では切り出せない(文字列と誤認する)。
+// 同じ挙動のものを置いて、これを使う関数を動かせるようにする。
+const shimEscapeHtml = `
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}`;
 const pieces = [
   shimNewsStore,
+  shimEscapeHtml,
   extractFn('fileExt'), extractFn('normExt'), extractFn('chunkArray'),
+  extractFn('autoLastRunText'), extractFn('autoFolderLink'),
+  extractFn('autoDetailHtml'), extractFn('autoTableHtml'),
   extractFn('setupNoticeText'),
   extractFn('toSpec'), extractFn('describeSpec'),
   extractFn('buildMasterErrorNotifyText'),
@@ -77,6 +86,7 @@ const pieces = [
   extractFn('getSeenNewsId'), extractFn('hasUnreadNews'),
 ];
 const exportNames = ['fileExt', 'normExt', 'chunkArray', 'setupNoticeText',
+  'autoLastRunText', 'autoFolderLink', 'autoDetailHtml', 'autoTableHtml',
   'toSpec', 'describeSpec', 'buildMasterErrorNotifyText',
   'NEWS', 'getSeenNewsId', 'hasUnreadNews', '__setSeenNews'];
 const C = new Function(pieces.join('\n\n') + '\nreturn {' + exportNames.join(',') + '};')();
@@ -139,6 +149,35 @@ console.log('# buildMasterErrorNotifyText (管理者への連絡文)');
   const t0 = C.buildMasterErrorNotifyText(null, 0, 'https://example.com/app/', sheet);
   check('通信エラー: メール未取得の表記', t0.includes('取得できず'), true);
   check('通信エラー: 通信エラー表記を含む', t0.includes('通信エラー'), true);
+}
+
+// ===== 自動チェックタブ =====
+console.log('# 自動チェックタブ (毎晩の結果を画面で見る)');
+check('タブのボタンがある', /id="tabBtnAuto"/.test(html), true);
+check('サーバから結果を引く', SRC.includes("'api_autoCheckSummary'"), true);
+check('集計は画面でやらない(サーバの Judge.gs / AutoCheck.gs が正本)',
+  /function\s+buildAutoCheckView\s*\(/.test(SRC), false);
+{
+  check('動いた記録が無いとき', C.autoLastRunText(null).includes('まだありません'), true);
+  const quiet = C.autoLastRunText({ at: '2026-10-05 02:00', targets: 36, checked: 0, ok: 0, ng: 0, baseline: 0, skipped: 0 });
+  check('静かな晩でも動いたことが分かる', quiet,
+    '最後に動いたのは 2026-10-05 02:00 ／ 対象 36作品 ／ 新しく上がった話はありませんでした');
+  const busy = C.autoLastRunText({ at: '2026-10-06 02:00', targets: 36, checked: 3, ok: 2, ng: 1, baseline: 0, skipped: 2 });
+  check('チェックした晩は件数を出す', busy,
+    '最後に動いたのは 2026-10-06 02:00 ／ 対象 36作品 ／ チェック 3話(OK 2 / NG 1) ／ 見に行けなかった作品 2件');
+}
+{
+  check('フォルダURLが無ければリンクを出さない', C.autoFolderLink(''), '');
+  check('フォルダリンク', C.autoFolderLink('https://drive.google.com/drive/folders/X'),
+    '<a href="https://drive.google.com/drive/folders/X" target="_blank" rel="noopener">フォルダ</a>');
+  check('NGの内容は1件1行にする', C.autoDetailHtml('a — 幅不一致 / 連番の欠番: 7'), 'a — 幅不一致<br>連番の欠番: 7');
+  check('内容が空なら空', C.autoDetailHtml(''), '');
+  check('見出しはエスケープし、セルは渡されたHTMLをそのまま入れる(エスケープは呼ぶ側の責務)',
+    C.autoTableHtml(['作品<b>'], [['<span class="ok">OK</span>']]),
+    '<tr><th>作品&lt;b&gt;</th></tr><tr><td><span class="ok">OK</span></td></tr>');
+  // 作品名は人が入力するので、描画側で必ず escapeHtml を通していること
+  check('作品名は escapeHtml を通している', /escapeHtml\(r\.titleName\)/.test(SRC), true);
+  check('NGの内容も escapeHtml を通している', /detail\.split\(' \/ '\)\.map\(x => escapeHtml\(x\)\)/.test(SRC), true);
 }
 
 // ===== お知らせ(最新News)の未読判定 =====

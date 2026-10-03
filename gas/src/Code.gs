@@ -260,6 +260,26 @@ function api_inspectImages(files, spec) {
   });
 }
 
+/**
+ * 画面の「自動チェック」タブの中身。毎晩の自動チェック(AutoCheck.gs)の結果を見るためのもの。
+ * 直っていない話 → 最近の結果 → 見ている作品 の順に返す。
+ */
+function api_autoCheckSummary() {
+  requireAllowed_();
+  var titles = loadAutoCheckTitles_();
+  var state = loadAutoCheckState_();
+  var view = buildAutoCheckView_(titles, state);
+  return {
+    ok: true,
+    hour: AUTO_CHECK_HOUR,
+    channel: { name: NOTIFY_CHANNEL_NAME, url: NOTIFY_CHANNEL_URL },
+    lastRun: loadLastRun_(),
+    unresolved: view.unresolved,
+    works: view.works,
+    recent: loadAutoCheckLog_(AUTO_CHECK_VIEW_LOG_ROWS)
+  };
+}
+
 /** ファイルセット整合性チェック(重複・欠番・最大番号ずれ・psd突合)。画面から呼ぶ。 */
 function api_setChecks(files) {
   requireAllowed_();
