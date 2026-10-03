@@ -57,6 +57,7 @@ gas/tests/            judge.test.mjs(判定の正本) / checker.test.mjs(画面�
 | メンション | 作家作品リストの **ディレクター / 編集者 / アサイン責任者**（前田さん2026-10-02「社員は全員」）。氏名→メンバーIDは `AccessControl.buildPeopleHubSlackDirectory` |
 | 画面で見る | 「🤖 自動チェック」タブ（`view-auto`）。直っていない話 → 最近のチェック結果 → 見ている作品。**一覧はNG件数だけ**で、中身は「詳細」ボタンのモーダル（`openAutoDetail`）。そこから **CSV / PDF** を出せる（チェック実行タブと同じ流儀）。サーバの `api_autoCheckSummary` が DB の3タブから組み立てる（集計も画面に書かない） |
 | 直したら | 「直っていない話」の**再チェック**ボタン（`api_recheckChapter`）。毎晩2:00を待たずその場で見直し、OKなら表から消える |
+| 1作品を今見る | 「見ている作品」の**いまチェック**ボタン（`api_recheckTitle`）。新しい方から4話を**署名に関わらず**見直す。動作確認や、まとめて直したあとに使う |
 | 手で動かす | GASエディタで `testAutoCheckNotify`（Slackへ1行投げて疎通確認）/ `dryRunAutoCheck`（**下見だけ。通知もDBへの記録もしない**）/ `runAutoCheckNow`（通知あり・記録あり）/ `installAutoCheckTrigger`（トリガー設置）。いずれも管理者のみ |
 
 - 🚩**増えた話は「中身の署名」で見つける。フォルダの `modifiedTime` は使えない**。Drive は子の追加で親フォルダの更新日時を変えない（`10_お客様とのやり取り用` は毎日動いているのに 2020年のまま。2026-10-02 実測）。話フォルダの中身を list して「件数＋ファイルID/名前/サイズのハッシュ」を DB と比べる

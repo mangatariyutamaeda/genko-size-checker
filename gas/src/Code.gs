@@ -282,6 +282,23 @@ function api_autoCheckSummary() {
 }
 
 /**
+ * 画面の「自動チェック」タブから、その作品をいまチェックする（新しい方から数話）。
+ * 毎晩2:00を待たずに動作を確かめたいとき・まとめて見直したいときに使う。
+ */
+function api_recheckTitle(titleNo) {
+  requireAllowed_();
+  var r = recheckTitle_(titleNo);
+  return {
+    titleNo: r.titleNo, titleName: r.titleName,
+    checked: r.results.length,
+    ng: r.results.filter(function (x) { return !x.ok; }).length,
+    chapters: r.results.map(function (x) {
+      return { chapter: x.chapter, ok: x.ok, ngCount: x.ngCount, imageCount: x.imageCount };
+    })
+  };
+}
+
+/**
  * 画面の「自動チェック」タブから、その話をいま再チェックする。
  * 直したその場で結果を見られるようにするためのもの（毎晩まで待たなくていい）。
  * DBに登録済みの話しか指せない。結果は毎晩の走査と同じように記録する。

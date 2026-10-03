@@ -183,7 +183,7 @@ test('画面用API・管理用関数は、未登録の人/管理者以外に実�
   const calls = { api_listFolders: [['1AbCdEfGhIjKlMnOp'], false], api_inspectImages: [[{ id: '1AbCdEfGhIjKlMnOp', name: 'a.tif' }]],
     api_loadMaster: [], api_saveMasterRow: [['A', '1', '', '', '', 'ちょうど', 'ちょうど', '']], api_deleteMasterRow: [2, 'A'],
     api_setChecks: [[{ name: 'a.tif', kind: 'image', root: 'F' }]], api_autoCheckSummary: [],
-    api_recheckChapter: ['1AbCdEfGhIjKlMnOp'] };
+    api_recheckChapter: ['1AbCdEfGhIjKlMnOp'], api_recheckTitle: ['0007-0026'] };
   for (const [fn, args] of Object.entries(calls)) {
     const ctx = load({ email: 'stranger@gmail.com' });
     assert.throws(() => ctx[fn](...args), /権限がありません/, fn);

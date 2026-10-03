@@ -954,3 +954,47 @@ test('再チェック: フォルダが空なら理由を言って止める(結�
   assert.throws(() => c.recheckChapter_('CHAPTER000007'), /画像が見つかりませんでした/);
   assert.equal(c.loadAutoCheckState_().byFolderId.CHAPTER000007.result, 'NG', '結果はそのまま');
 });
+
+test('作品ごとチェック: 署名に関わらず新しい方から数話を見直し、Slackには出さない', () => {
+  const tree = {
+    WORK9: { folders: [{ id: 'SH9', name: '430_写植' }], files: [] },
+    SH9: { folders: [{ id: 'SRC9', name: '200_写植依頼→完成ファイル' }], files: [] },
+    SRC9: { folders: [
+      { id: 'CHAPTER000005', name: '005話' }, { id: 'CHAPTER000006', name: '006話' },
+      { id: 'CHAPTER000007', name: '007話' },
+    ], files: [] },
+    CHAPTER000005: { folders: [], files: [{ id: 'fileOK000041', name: '005_001.tif', mimeType: 'image/tiff', size: String(OK_TIFF.length) }] },
+    CHAPTER000006: { folders: [], files: [{ id: 'fileOK000042', name: '006_001.tif', mimeType: 'image/tiff', size: String(OK_TIFF.length) }] },
+    CHAPTER000007: { folders: [], files: [{ id: 'fileNG000043', name: '007_001.tif', mimeType: 'image/tiff', size: String(NARROW_TIFF.length) }] },
+  };
+  const titles = [{ no: '0007-0026', formalName: 'ヴェンデッタ・クエスト', workStatus: '４．連載中（継続）', driveFolderId: 'WORK9' }];
+  const c = loadWired({ tree, titles, files: { fileOK000041: OK_TIFF, fileOK000042: OK_TIFF, fileNG000043: NARROW_TIFF } });
+
+  c.autoCheckMain_({ notify: true });          // 初回登録（3話とも 初回登録 になる）
+  assert.equal(c.loadAutoCheckState_().rows.length, 3);
+  assert.equal(c.loadAutoCheckState_().byFolderId.CHAPTER000007.result, '初回登録');
+
+  // 中身は変わっていないが、作品ごとチェックは署名に関わらず見る
+  c.__state.now = '2026-10-05 11:00';
+  c.__state.posts.length = 0;
+  const r = plain(c.recheckTitle_('0007-0026'));
+  assert.equal(r.titleNo, '0007-0026');
+  assert.equal(r.results.length, 3);
+  deepEq(r.results.map(x => [x.chapter, x.ok]), [[5, true], [6, true], [7, false]], '話の順に並ぶ');
+  assert.equal(c.__state.posts.length, 0, 'Slackには出さない');
+
+  const state = c.loadAutoCheckState_();
+  assert.equal(state.byFolderId.CHAPTER000005.result, 'OK');
+  assert.equal(state.byFolderId.CHAPTER000007.result, 'NG', '初回登録からNGに変わる');
+  const log = plain(c.loadAutoCheckLog_(10));
+  assert.equal(log[0].trigger, '画面から作品ごと再チェック');
+});
+
+test('作品ごとチェック: 未登録の作品・写植フォルダが無い作品は断る', () => {
+  const c = loadWired({ tree: {}, titles: [], files: {} });
+  assert.throws(() => c.recheckTitle_('0007-9999'), /登録されていません/);
+  const titles = c.loadAutoCheckTitles_();
+  c.upsertAutoCheckTitle_(titles, { no: '0007-0099', name: 'まだ連載前' }, '');
+  c.saveAutoCheckTitles_(titles);
+  assert.throws(() => c.recheckTitle_('0007-0099'), /写植フォルダ.*見つかっていません/);
+});

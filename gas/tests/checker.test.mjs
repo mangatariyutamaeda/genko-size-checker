@@ -157,6 +157,8 @@ console.log('# 自動チェックタブ (毎晩の結果を画面で見る)');
 check('タブのボタンがある', /id="tabBtnAuto"/.test(html), true);
 check('サーバから結果を引く', SRC.includes("'api_autoCheckSummary'"), true);
 check('直したその場で再チェックできる', SRC.includes("'api_recheckChapter'"), true);
+check('作品ごとに今チェックできる', SRC.includes("'api_recheckTitle'"), true);
+check('見ている作品に「いまチェック」ボタンを出す', /class="secondary auto-check-title"/.test(SRC), true);
 check('再チェックのボタンを出す', /class="secondary auto-recheck"/.test(SRC), true);
 check('集計は画面でやらない(サーバの Judge.gs / AutoCheck.gs が正本)',
   /function\s+buildAutoCheckView\s*\(/.test(SRC), false);

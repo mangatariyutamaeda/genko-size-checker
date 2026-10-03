@@ -884,7 +884,8 @@ function renderAutoCheck(d) {
       w.chapters || 0,
       escapeHtml(w.lastCheckedAt || '—'),
       w.ng ? `<span class="fail">${w.ng}話</span>` : '—',
-      autoFolderLink(w.folderUrl, '写植フォルダ'),
+      '<span class="auto-actions">' + autoFolderLink(w.folderUrl, '写植フォルダ')
+        + (w.folderUrl ? ` <button type="button" class="secondary auto-check-title" data-title="${escapeHtml(w.titleNo)}">いまチェック</button>` : '') + '</span>',
     ]));
 }
 
@@ -932,9 +933,32 @@ async function runRecheck(btn) {
 $('view-auto').addEventListener('click', (ev) => {
   const detail = ev.target.closest('.auto-detail-btn');
   if (detail) { openAutoDetail(detail.dataset.detail); return; }
+  const whole = ev.target.closest('.auto-check-title');
+  if (whole) { runTitleCheck(whole); return; }
   const btn = ev.target.closest('.auto-recheck');
   if (btn) runRecheck(btn);
 });
+
+// 作品まるごと（新しい方から数話）をいまチェックする。毎晩2:00を待たずに確かめたいとき用。
+async function runTitleCheck(btn) {
+  const titleNo = btn.dataset.title;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'チェック中...';
+  setStatus('autoStatus', `${titleNo} をチェックしています(新しい方から数話。少し時間がかかります)...`, '');
+  try {
+    const r = await callServer('api_recheckTitle', titleNo);
+    await loadAutoCheck(true);
+    const detail = r.chapters.map(c => `${c.chapter}話 ${c.ok ? 'OK' : 'NG' + c.ngCount}`).join(' / ');
+    const head = `${r.titleNo} ${r.titleName} — ${r.checked}話をチェック (${detail})`;
+    if (r.ng) setStatus('autoStatus', `⚠️ ${head}。NGの中身は上の「直っていない話」で見てください。`, 'error');
+    else setStatus('autoStatus', `✅ ${head}。問題は見つかりませんでした。`, 'ok');
+  } catch (e) {
+    setStatus('autoStatus', 'チェックできませんでした: ' + e.message, 'error');
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+}
 // モーダルの中の「再チェック」も同じ処理を通す
 $('autoDetailModal').addEventListener('click', (ev) => {
   const btn = ev.target.closest('.auto-recheck');

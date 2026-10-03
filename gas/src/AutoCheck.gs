@@ -439,6 +439,47 @@ function readChapter_(title, folder) {
 }
 
 /**
+ * 画面から「この作品をいまチェックする」。毎晩2:00を待たずに、その作品の新しい方から
+ * AUTO_CHECK_RECENT_CHAPTERS 話を**署名に関わらず**見直す。
+ * 動作確認したいとき・直したあとまとめて見たいときに使う。
+ * 🚩DBに登録済みの作品だけ。Slackには出さない(押した人が画面を見ている)。
+ * @param {string} titleNo 作品No（例 0007-0026）
+ * @return {{titleNo:string, titleName:string, results:!Array<Object>}}
+ */
+function recheckTitle_(titleNo) {
+  var no = String(titleNo || '').trim();
+  var titles = loadAutoCheckTitles_();
+  var known = titles.byNo[no];
+  if (!known) throw new Error('この作品は自動チェックの対象として登録されていません。');
+  if (!known.folderId) {
+    throw new Error('この作品の写植フォルダ(430_写植 → 200_写植依頼→完成ファイル)がまだ見つかっていません。');
+  }
+
+  var title = { no: no, name: known.titleName };
+  var chapters = driveChildren_(known.folderId).folders
+    .map(function (f) { return { id: f.id, name: f.name, number: chapterNumber_(f.name) }; })
+    .filter(function (f) { return f.number != null; })
+    .sort(function (a, b) { return b.number - a.number; })
+    .slice(0, AUTO_CHECK_RECENT_CHAPTERS);
+  if (!chapters.length) throw new Error('話フォルダ(N話)が見つかりませんでした。');
+
+  var spec = loadAutoCheckSpec_();
+  var state = loadAutoCheckState_();
+  var results = [];
+  chapters.sort(function (a, b) { return a.number - b.number; }).forEach(function (folder) {
+    var chapter = readChapter_(title, folder);
+    if (!chapter) return;                       // まだ何も上がっていない話は飛ばす
+    var result = checkChapter_(title, chapter, spec);
+    results.push(result);
+    upsertAutoCheckState_(state, chapter, { result: result.ok ? 'OK' : 'NG', ngCount: result.ngCount });
+  });
+  if (!results.length) throw new Error('どの話にも画像が見つかりませんでした。');
+  saveAutoCheckState_(state);
+  appendAutoCheckLog_(results, '画面から作品ごと再チェック');
+  return { titleNo: no, titleName: known.titleName, results: results };
+}
+
+/**
  * 画面から「この話をいま再チェックする」。直したその場で結果を出すためのもの。
  * 🚩**DBに既にある話しか再チェックできない**(任意のDriveフォルダを指させない)。
  * 結果は毎晩の走査と同じように記録するので、直っていれば次の晩はもう鳴らない。
